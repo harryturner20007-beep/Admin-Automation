@@ -24,7 +24,7 @@ export type Range = { from?: string; to?: string };
 export function computeResults(state: AppState, garageId: string, range: Range = {}): Results {
   const within = (at?: string) =>
     !!at && (!range.from || Date.parse(at) >= Date.parse(range.from)) && (!range.to || Date.parse(at) < Date.parse(range.to));
-  const msgs = state.messages.filter((m) => m.garageId === garageId);
+  const msgs = state.messages.filter((m) => m.garageId === garageId && !m.invoiceId); // invoice texts aren't follow-ups
   const allSent = msgs.filter((m) => m.direction === "outbound" && SENT.has(m.status ?? ""));
   const outbound = allSent.filter((m) => within(m.sentAt ?? m.createdAt));
   const firstFollowUp = new Map<string, number>();

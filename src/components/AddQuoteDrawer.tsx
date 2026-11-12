@@ -5,7 +5,8 @@ import { generateQuoteRef, normaliseRegistration, QuoteValidationError, validate
 import { fromLondonInput, toLondonInput } from "@/domain/time";
 import type { Quote } from "@/domain/types";
 import { useAction, useDemo } from "@/demo/store";
-import { Button, Field, Icon, InlineFeedback, inputClass, Plate } from "./ui";
+import { Rise } from "./motion";
+import { Button, Field, Icon, InlineFeedback, inputClass, PlateLabel } from "./ui";
 
 type Form = Omit<QuoteInput, "sentAt"> & { sentLocal: string | null }; // null = "now" (follows the clock until edited)
 
@@ -93,24 +94,24 @@ export function AddQuoteDrawer({ open, onClose, onSaved, onShowExisting }: {
     <aside
       hidden={!open}
       aria-labelledby="add-quote-title"
-      className="drawer-in fixed inset-0 z-40 flex flex-col bg-white lg:top-[86px] lg:left-auto lg:w-[480px] lg:border-l lg:border-steel-line lg:shadow-xl lg:shadow-graphite/10"
+      className="drawer-in fixed inset-0 z-40 flex flex-col bg-white md:left-auto md:w-[480px] md:border-l md:border-line md:shadow-float"
     >
-      <div className="flex items-start justify-between gap-3 bg-graphite px-5 pt-4 pb-5 text-white">
+      <div className="flex items-start justify-between gap-3 border-b border-line px-6 py-4">
         <div>
-          <h2 id="add-quote-title" className="text-2xl font-bold [font-stretch:115%]">Add a quote</h2>
-          <p className="mt-1 text-sm text-steel">For a quote the garage has already sent the customer.</p>
+          <h2 id="add-quote-title" className="text-lg font-semibold text-text">Add a quote</h2>
+          <p className="mt-1 text-sm text-muted">For a quote the garage has already sent the customer.</p>
         </div>
-        <Button size="sm" variant="onDark" className="ring-0" onClick={onClose} aria-label="Close add quote"><Icon name="close" /></Button>
+        <Button size="sm" variant="ghost" className="hover-turn" onClick={onClose} aria-label="Close add quote"><Icon name="close" className="nudge-icon h-4 w-4" /></Button>
       </div>
 
       <form noValidate onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
         <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-5 py-5">
-          <p className="rounded-md border border-dashed border-steel px-3 py-2 text-xs text-slate-600">
+          <p className="rounded-lg border border-dashed border-muted/60 px-3 py-2 text-xs text-muted">
             Demo mode: use sample details only, such as a made-up name and an 07700 900xxx number. Quotes are saved in this browser.
           </p>
 
           <fieldset className="space-y-4">
-            <legend className="mb-3 text-sm font-semibold text-ink">Customer</legend>
+            <legend className="mb-3 text-sm font-semibold text-text">Customer</legend>
             <Field id="aq-customerName" label="Customer name" error={errors.customerName}>
               <input
                 ref={first}
@@ -127,7 +128,7 @@ export function AddQuoteDrawer({ open, onClose, onSaved, onShowExisting }: {
           </fieldset>
 
           <fieldset className="space-y-4">
-            <legend className="mb-3 text-sm font-semibold text-ink">The quote</legend>
+            <legend className="mb-3 text-sm font-semibold text-text">The quote</legend>
             <Field id="aq-job" label="Job description" error={errors.job}>
               <textarea
                 id="aq-job"
@@ -159,7 +160,7 @@ export function AddQuoteDrawer({ open, onClose, onSaved, onShowExisting }: {
             <div>
               {field("reference", "Quote reference", { optional: true, placeholder: generateQuoteRef(state, garageId), hint: `Leave blank to use ${generateQuoteRef(state, garageId)}.` })}
               {errors.duplicateOf && (
-                <button type="button" className="mt-1 text-xs font-medium text-signal underline underline-offset-2 hover:text-signal-deep" onClick={() => onShowExisting(errors.duplicateOf!)}>
+                <button type="button" className="mt-1 text-xs font-medium text-accent underline underline-offset-2 hover:text-accent-hover" onClick={() => onShowExisting(errors.duplicateOf!)}>
                   Open the existing quote
                 </button>
               )}
@@ -169,7 +170,7 @@ export function AddQuoteDrawer({ open, onClose, onSaved, onShowExisting }: {
               <div>
                 {field("registration", "Registration", { optional: true, placeholder: "AB12 CDE", className: `${inputClass(errors.registration)} uppercase` })}
                 {form.registration.trim() && (
-                  <div className="mt-2"><Plate reg={normaliseRegistration(form.registration)} /></div>
+                  <Rise className="mt-2"><PlateLabel reg={normaliseRegistration(form.registration)} /></Rise>
                 )}
               </div>
             </div>
@@ -188,9 +189,9 @@ export function AddQuoteDrawer({ open, onClose, onSaved, onShowExisting }: {
           </fieldset>
 
           <fieldset className="space-y-3">
-            <legend className="mb-3 text-sm font-semibold text-ink">SMS follow-up</legend>
-            <label className="flex cursor-pointer items-start gap-2.5 text-sm text-ink">
-              <input type="checkbox" className="mt-0.5 h-4 w-4 accent-signal" checked={form.smsEligible} onChange={(e) => set("smsEligible", e.target.checked)} />
+            <legend className="mb-3 text-sm font-semibold text-text">SMS follow-up</legend>
+            <label className="flex cursor-pointer items-start gap-2.5 text-sm text-text">
+              <input type="checkbox" className="mt-0.5 h-4 w-4 accent-accent" checked={form.smsEligible} onChange={(e) => set("smsEligible", e.target.checked)} />
               <span>
                 Customer agreed to SMS follow-ups
                 <span className="block text-xs text-slate-500">Leave off to save the quote without any follow-up texts.</span>
@@ -200,7 +201,7 @@ export function AddQuoteDrawer({ open, onClose, onSaved, onShowExisting }: {
           </fieldset>
         </div>
 
-        <div className="flex items-center justify-end gap-3 border-t border-steel-line bg-work px-5 py-3">
+        <div className="flex items-center justify-end gap-3 border-t border-line bg-canvas px-6 py-3">
           <InlineFeedback feedback={save.feedback?.ok ? null : save.feedback} />
           <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="primary" disabled={save.pending} aria-busy={save.pending}>

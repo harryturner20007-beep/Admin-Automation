@@ -30,7 +30,7 @@ export function quoteRow(state: AppState, q: Quote): QuoteRow {
   const view = quoteFollowUpView(state, q);
   const garage = state.garages.find((g) => g.id === q.garageId)!;
   const now = Date.parse(state.now);
-  const out = state.messages.filter((m) => m.quoteId === q.id && m.direction === "outbound");
+  const out = state.messages.filter((m) => m.quoteId === q.id && m.direction === "outbound" && !m.invoiceId); // invoice texts live on Invoices
   const draft = out.find((m) => m.status === "awaiting_approval");
   const recon = out.find((m) => m.status === "needs_reconciliation");
   const replyTask = state.tasks.find((t) => t.status === "open" && t.quoteIds.includes(q.id) && t.kind !== "opt_out_notice" && t.kind !== "reconcile_send");

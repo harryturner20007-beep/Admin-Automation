@@ -1,6 +1,6 @@
-import type { Garage, Message, Quote, Suppression, Template } from "./types";
+import type { Garage, Invoice, InvoiceStep, Message, Quote, Suppression, Template } from "./types";
 import { hasUnresolved } from "./templates";
-import { DAY_MS, HOUR_MS } from "./time";
+import { DAY_MS, HOUR_MS, ukDate } from "./time";
 
 export type GateInput = {
   now: string;
@@ -28,7 +28,10 @@ export type GateReason =
   | "window_expired"
   | "revision_changed"
   | "follow_ups_off"
-  | "template_unresolved";
+  | "template_unresolved"
+  | "reminder_pending"
+  | "invoice_settled"
+  | "invoice_paused";
 
 export const GATE_REASON_TEXT: Record<GateReason, string> = {
   garage_paused: "Garage is paused",
@@ -46,6 +49,9 @@ export const GATE_REASON_TEXT: Record<GateReason, string> = {
   revision_changed: "Quote was revised after drafting",
   follow_ups_off: "Follow-ups are switched off for this garage",
   template_unresolved: "Message has a field with no value",
+  reminder_pending: "Staff set a reminder for a later date",
+  invoice_settled: "Invoice is already paid",
+  invoice_paused: "Reminders are paused for this invoice",
 };
 
 export function isSuppressed(suppressions: Suppression[], garageId: string, phone: string): boolean {
@@ -76,6 +82,7 @@ export function checkSendGate(input: GateInput): GateReason[] {
   if (isSuppressed(suppressions, garage.id, quote.phone)) reasons.push("number_suppressed");
   if (isQuoteExpired(quote, garage, now)) reasons.push("quote_expired");
   if (quote.unresolvedReply) reasons.push("unresolved_reply");
+  if (quote.reminderDate && ukDate(now) < quote.reminderDate) reasons.push("reminder_pending"); // staff will chase on that date
   if (t < Date.parse(window.windowStart)) reasons.push("before_window");
   if (t >= Date.parse(window.windowEnd)) reasons.push("window_expired");
 
@@ -84,5 +91,25 @@ export function checkSendGate(input: GateInput): GateReason[] {
     if (hasUnresolved(message.body)) reasons.push("template_unresolved"); // never send a raw {{placeholder}}
     if (message.revision !== quote.revision) reasons.push("revision_changed");
   }
+  return reasons;
+}
+
+/**
+ * Pre-send gate for invoice texts (the invoice and its payment reminders). Same safety rules as follow-ups:
+ * garage pause and mode, opt-outs, documented SMS consent, staff or automatic approval, opening-hours window.
+ */
+export function checkInvoiceGate(input: { now: string; garage: Garage; quote: Quote; invoice: Invoice; step: InvoiceStep; suppressions: Suppression[]; window: { windowStart: string; windowEnd: string }; message?: Message }): GateReason[] {
+  const { now, garage, quote, invoice, step, suppressions, window, message } = input;
+  const t = Date.parse(now);
+  const reasons: GateReason[] = [];
+  if (garage.paused) reasons.push("garage_paused");
+  if (garage.mode === "off") reasons.push("follow_ups_off");
+  if (invoice.status !== "unpaid") reasons.push("invoice_settled");
+  if (invoice.chasePaused && step > 0) reasons.push("invoice_paused"); // pausing stops reminders, not the invoice itself
+  if (!quote.eligibilityEvidenceRef?.trim()) reasons.push("no_eligibility_evidence");
+  if (isSuppressed(suppressions, garage.id, quote.phone)) reasons.push("number_suppressed");
+  if (t < Date.parse(window.windowStart)) reasons.push("before_window");
+  if (t >= Date.parse(window.windowEnd)) reasons.push("window_expired");
+  if (message && (!message.approvedAt || !message.approvedBy)) reasons.push("not_staff_approved");
   return reasons;
 }

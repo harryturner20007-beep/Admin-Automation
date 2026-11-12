@@ -20,17 +20,18 @@ export function Badge({ tone = "neutral", children }: { tone?: Tone; children: R
 
 type Variant = "primary" | "secondary" | "danger" | "ghost" | "onDark" | "signalOnDark";
 const VARIANTS: Record<Variant, string> = {
-  primary: "bg-signal text-white hover:bg-signal-deep disabled:bg-signal/50",
-  secondary: "bg-white text-slate-800 ring-1 ring-inset ring-slate-300 hover:bg-slate-50 hover:ring-slate-400 disabled:text-slate-400",
+  primary: "bg-accent text-white hover:bg-accent-hover disabled:opacity-50",
+  secondary: "bg-white text-text ring-1 ring-inset ring-line hover:bg-canvas disabled:opacity-50",
   danger: "bg-red-600 text-white hover:bg-red-700",
-  ghost: "text-slate-600 hover:bg-slate-100 hover:text-slate-900",
+  ghost: "text-muted hover:bg-canvas hover:text-text disabled:opacity-50",
   onDark: "text-slate-200 ring-1 ring-inset ring-white/20 hover:bg-white/10 hover:text-white",
   signalOnDark: "bg-signal text-white hover:bg-white hover:text-ink",
 };
 
 export function Button({ variant = "secondary", size = "md", className = "", ...rest }: ComponentProps<"button"> & { variant?: Variant; size?: "sm" | "md" }) {
-  const sz = size === "sm" ? "px-2.5 py-1 text-xs" : "px-3.5 py-2 text-sm";
-  return <button className={`inline-flex items-center justify-center gap-1.5 rounded-md font-medium whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal disabled:cursor-not-allowed ${sz} ${VARIANTS[variant]} ${className}`} {...rest} />;
+  // 44px minimum for every size (design DNA touch target); "sm" only narrows padding and type.
+  const sz = size === "sm" ? "px-3 text-xs" : "px-4 text-sm";
+  return <button className={`inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg font-medium whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed ${sz} ${VARIANTS[variant]} ${className}`} {...rest} />;
 }
 
 export function Card({ children, className = "" }: { children: ReactNode; className?: string }) {
@@ -76,6 +77,11 @@ const ICONS = {
   bolt: "M13 3L5 14h6l-1 7 8-11h-6z",
   sliders: "M4 7h10M18 7h2M4 17h4M12 17h8M14 4v6M8 14v6",
   back: "M15 5l-7 7 7 7",
+  phone: "M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z",
+  message: "M4 5h16v11H8l-4 4zM8 10h8M8 13h5",
+  copy: "M9 9h11v11H9zM5 15H4V4h11v1",
+  undo: "M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3",
+  next: "M9 5l7 7-7 7",
 } as const;
 
 export type IconName = keyof typeof ICONS;
@@ -92,7 +98,7 @@ export function Icon({ name, className = "h-4 w-4" }: { name: IconName; classNam
 export function Field({ id, label, hint, error, optional, children }: { id: string; label: string; hint?: string; error?: string; optional?: boolean; children: ReactNode }) {
   return (
     <div>
-      <label htmlFor={id} className="mb-1 block text-sm font-medium text-ink">
+      <label htmlFor={id} className="mb-1 block text-sm font-medium text-text">
         {label} {optional && <span className="font-normal text-slate-400">(optional)</span>}
       </label>
       {children}
@@ -103,7 +109,7 @@ export function Field({ id, label, hint, error, optional, children }: { id: stri
 }
 
 export const inputClass = (error?: string) =>
-  `w-full rounded-md border bg-white px-3 py-2 text-sm text-slate-900 placeholder:text-slate-400 transition-colors focus:outline-none focus:ring-2 ${error ? "border-red-400 focus:ring-red-200" : "border-steel-line hover:border-steel focus:border-signal focus:ring-signal/15"}`;
+  `min-h-11 w-full rounded-lg border bg-white px-3 py-2 text-sm text-text placeholder:text-muted/70 transition-colors focus:outline-none focus:ring-2 ${error ? "border-danger focus:ring-danger/20" : "border-line hover:border-muted focus:border-accent focus:ring-accent/15"}`;
 
 /**
  * The registration as a UK front plate: white face, heavy condensed characters and the blue
@@ -124,4 +130,29 @@ export function Plate({ reg, size = "sm", ghost = false }: { reg?: string; size?
       <span aria-hidden className={`flex items-center font-bold tracking-wide whitespace-nowrap uppercase [font-stretch:72%] ${lg ? "px-2.5 text-lg" : "px-1.5 text-[13px]"}`}>{reg}</span>
     </span>
   );
+}
+
+/** Neutral registration label for the Quotes workspace (.design/components/controls.md). */
+export function PlateLabel({ reg }: { reg?: string }) {
+  return reg ? (
+    <span className="inline-flex items-center rounded border border-line bg-canvas px-1.5 py-0.5 text-xs font-semibold tracking-[0.04em] whitespace-nowrap text-text uppercase">
+      <span className="sr-only">Registration </span>
+      {reg}
+    </span>
+  ) : (
+    <span className="inline-flex rounded border border-dashed border-line px-1.5 py-0.5 text-xs text-muted">No reg</span>
+  );
+}
+
+export type StatusTone = "success" | "attention" | "danger" | "neutral";
+const STATUS_TONES: Record<StatusTone, string> = {
+  success: "bg-success-bg text-success",
+  attention: "bg-attention-bg text-attention",
+  danger: "bg-danger-bg text-danger",
+  neutral: "bg-canvas text-muted",
+};
+
+/** Status as text on a subtle tint, never colour alone. */
+export function StatusLabel({ tone, children }: { tone: StatusTone; children: ReactNode }) {
+  return <span className={`inline-flex items-center rounded-md px-2 py-0.5 text-xs font-medium whitespace-nowrap ${STATUS_TONES[tone]}`}>{children}</span>;
 }

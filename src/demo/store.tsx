@@ -16,7 +16,7 @@ import { LoadingSkeleton } from "@/components/LoadingSkeleton";
 import { Button } from "@/components/ui";
 
 // Bump when AppState changes shape so old browser copies are rebuilt, not misread.
-const STORAGE_KEY = "quote-followup-demo-v5";
+const STORAGE_KEY = "quote-followup-demo-v6";
 
 export type LastRun = {
   at: string;
@@ -32,12 +32,18 @@ const drafted = (check: CheckReportItem[]) => check.filter((c) => c.outcome === 
 /** One sentence for the toast: what the run sent, drafted or held back. */
 const runText = (state: AppState, r: RunReport, automated: boolean): string | null => {
   const name = (id: string) => state.quotes.find((q) => q.id === id)?.customerName ?? "a customer";
-  const sent = r.sends.filter((s) => s.outcome === "sent").map((s) => name(s.quoteId));
+  const isInvoice = (id: string) => !!state.messages.find((m) => m.id === id)?.invoiceId;
+  const sentOk = r.sends.filter((s) => s.outcome === "sent");
+  const sent = sentOk.filter((s) => !isInvoice(s.messageId)).map((s) => name(s.quoteId));
+  const invoiceSent = sentOk.filter((s) => isInvoice(s.messageId)).map((s) => name(s.quoteId));
+  const invoiceWaiting = r.invoices.filter((c) => c.outcome === "drafted" && state.messages.find((m) => m.id === c.messageId)?.status === "awaiting_approval").map((c) => c.customerName);
   const unclear = r.sends.filter((s) => s.outcome === "needs_reconciliation").length;
   const waiting = r.check.filter((c) => c.outcome === "drafted" && state.messages.find((m) => m.id === c.messageId)?.status === "awaiting_approval").map((c) => c.customerName);
   const parts: string[] = [];
   if (sent.length) parts.push(`Simulated sending: follow-up sent to ${sent.join(", ")}.`);
   if (waiting.length) parts.push(`${waiting.length === 1 ? `Follow-up drafted for ${waiting[0]}` : `${waiting.length} follow-ups drafted`}. Waiting for your approval.`);
+  if (invoiceSent.length) parts.push(`Simulated sending: invoice text sent to ${invoiceSent.join(", ")}.`);
+  if (invoiceWaiting.length) parts.push(`${invoiceWaiting.length === 1 ? `Invoice text drafted for ${invoiceWaiting[0]}` : `${invoiceWaiting.length} invoice texts drafted`}. Waiting for your approval on Invoices.`);
   if (unclear) parts.push(`${unclear} send${unclear === 1 ? "" : "s"} timed out and need checking.`);
   if (parts.length) return parts.join(" ");
   return automated ? null : "Check finished. Nothing new was due.";
@@ -54,6 +60,10 @@ type DemoCtx = {
   notify: (text: string, quoteIds?: string[]) => void;
   dismissNotice: () => void;
   act: (fn: (s: AppState) => void) => void;
+  /** Like act, but remembers the previous state so `undo` can restore it. */
+  actUndoable: (fn: (s: AppState) => void) => void;
+  /** Restores the state before the last undoable action, only if nothing else changed since. */
+  undo: () => void;
   runCheck: () => Promise<RunReport>;
   approveAndSend: (messageId: string) => Promise<SendReportItem[]>;
   simulateReply: (from: string, body: string) => InboundResult;
@@ -96,6 +106,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const [epoch, setEpoch] = useState(0);
   const [notice, setNotice] = useState<Notice | null>(null);
   const ref = useRef<AppState | null>(null);
+  const undoRef = useRef<{ before: AppState; after: AppState } | null>(null);
 
   const commit = useCallback((s: AppState) => {
     ref.current = s;
@@ -113,6 +124,19 @@ export function DemoProvider({ children }: { children: ReactNode }) {
   const actions = useMemo(() => {
     const draft = () => structuredClone(ref.current!) as AppState;
     return {
+      actUndoable: (fn: (s: AppState) => void) => {
+        const before = ref.current!;
+        const s = draft();
+        fn(s);
+        commit(s);
+        undoRef.current = { before, after: s };
+      },
+      undo: () => {
+        const u = undoRef.current;
+        if (!u || ref.current !== u.after) throw new Error("something else changed since, so this can't be undone");
+        commit(u.before);
+        undoRef.current = null;
+      },
       act: (fn: (s: AppState) => void) => {
         const s = draft();
         fn(s);
@@ -124,7 +148,7 @@ export function DemoProvider({ children }: { children: ReactNode }) {
         const check = r.check.filter((c) => c.outcome !== "already_handled");
         commit(s);
         setLastRun({ at: s.now, automated: false, check, sends: r.sends });
-        setNotice({ id: Date.now(), text: runText(s, { check, sends: r.sends }, false)!, quoteIds: [...drafted(check), ...r.sends.map((x) => x.quoteId)] });
+        setNotice({ id: Date.now(), text: runText(s, { check, invoices: r.invoices, sends: r.sends }, false)!, quoteIds: [...drafted(check), ...r.sends.map((x) => x.quoteId)] });
         return r;
       },
       approveAndSend: async (messageId: string) => {

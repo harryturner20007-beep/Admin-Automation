@@ -1,4 +1,4 @@
-import type { Garage, Quote, Weekday } from "./types";
+import type { Garage, InvoiceStep, Quote, Weekday } from "./types";
 import {
   addBusinessDays,
   addCalendarDays,
@@ -34,8 +34,15 @@ export function stepWindow(quote: Pick<Quote, "quoteSentAt">, garage: Pick<Garag
   const setting = garage.followUps[step - 1];
   if (!setting || (step === 2 && !setting.enabled)) return null;
   const sent = londonParts(quote.quoteSentAt);
-  let due = addBusinessDays({ y: sent.y, m: sent.m, d: sent.d }, setting.businessDays);
-  const preferred = parseHHMM(setting.sendTime);
+  const w = openWindowFrom(garage, addBusinessDays({ y: sent.y, m: sent.m, d: sent.d }, setting.businessDays), parseHHMM(setting.sendTime));
+  return w && { step, ...w };
+}
+
+/**
+ * The first business day on or after `due` that the garage is open, at `preferred` kept inside opening hours
+ * (before opening moves to opening; at or after closing falls back to opening). Null if never open.
+ */
+function openWindowFrom(garage: Pick<Garage, "hours">, due: LocalDate, preferred: { hh: number; mm: number }): Omit<StepWindow, "step"> | null {
   for (let i = 0; i < 14; i++) {
     const hours = garage.hours[weekdayOf(due) as Weekday];
     if (hours && isBusinessDay(due)) {
@@ -43,7 +50,6 @@ export function stepWindow(quote: Pick<Quote, "quoteSentAt">, garage: Pick<Garag
       const close = parseHHMM(hours.close);
       const at = minutes(preferred) < minutes(open) || minutes(preferred) >= minutes(close) ? open : preferred;
       return {
-        step,
         dueDate: due,
         windowStart: londonToUtc(due, at.hh, at.mm).toISOString(),
         windowEnd: londonToUtc(due, close.hh, close.mm).toISOString(),
@@ -53,6 +59,28 @@ export function stepWindow(quote: Pick<Quote, "quoteSentAt">, garage: Pick<Garag
   }
   return null; // garage has no opening hours on business days
 }
+
+/** Calendar days after the invoice date that each reminder is due. */
+export const INVOICE_REMINDER_DAYS = { 1: 7, 2: 14 } as const;
+
+/**
+ * When an invoice text may go. Step 0 (the invoice) goes from `from` if the garage is open then,
+ * otherwise at the next opening. Reminders go N calendar days after `from` at follow-up 1's send time,
+ * moved to the next open business day. Pass `from` = now to get the next window after a missed one.
+ */
+export function invoiceWindow(from: string, garage: Pick<Garage, "hours" | "followUps">, step: InvoiceStep): Omit<StepWindow, "step"> | null {
+  const p = londonParts(from);
+  const day: LocalDate = { y: p.y, m: p.m, d: p.d };
+  const sendTime = parseHHMM(garage.followUps[0].sendTime);
+  if (step > 0) return openWindowFrom(garage, addCalendarDays(day, INVOICE_REMINDER_DAYS[step as 1 | 2]), sendTime);
+  const today = openWindowFrom(garage, day, { hh: p.hh, mm: p.mm });
+  if (today && Date.parse(today.windowEnd) > Date.parse(from)) {
+    return { ...today, windowStart: Date.parse(today.windowStart) > Date.parse(from) ? today.windowStart : from };
+  }
+  return openWindowFrom(garage, addCalendarDays(day, 1), { hh: 0, mm: 0 }); // closed now: next opening
+}
+
+export const invoiceSendKey = (garageId: string, invoiceId: string, step: InvoiceStep) => `${garageId}:${invoiceId}:i${step}`;
 
 export function sendKey(garageId: string, quoteId: string, revision: number, step: 1 | 2): string {
   return `${garageId}:${quoteId}:r${revision}:s${step}`;

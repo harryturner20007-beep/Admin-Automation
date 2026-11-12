@@ -2,7 +2,8 @@
 // the in-browser demo (Phase 1), against Postgres (Phase 2) and with Twilio (Phase 3).
 
 import type { SmsProvider } from "@/sms/provider";
-import { checkSendGate, GATE_REASON_TEXT, isQuoteExpired, type GateReason } from "./gate";
+import { checkInvoiceGate, checkSendGate, GATE_REASON_TEXT, isQuoteExpired, type GateReason } from "./gate";
+import { draftInvoiceText, issueInvoice, messageLabel } from "./invoices";
 import { classifyReply, CATEGORY_LABEL, isClearOptOut } from "./replies";
 import { sendKey, stepWindow } from "./schedule";
 import { formatPounds, renderSms, templateValues, type Rendered } from "./templates";
@@ -57,7 +58,7 @@ export function insertOutboundOnce(state: AppState, msg: Message): boolean {
 
 const PENDING: Message["status"][] = ["awaiting_approval", "approved"];
 
-function cancelPendingFor(state: AppState, quoteId: string, reason: string) {
+export function cancelPendingFor(state: AppState, quoteId: string, reason: string) {
   for (const m of state.messages) {
     if (m.direction === "outbound" && m.quoteId === quoteId && PENDING.includes(m.status)) {
       m.status = "cancelled";
@@ -108,6 +109,7 @@ const DRAFT_BLOCKERS: GateReason[] = [
   "number_suppressed",
   "quote_expired",
   "unresolved_reply",
+  "reminder_pending",
 ];
 
 /**
@@ -219,7 +221,7 @@ export function approveMessage(state: AppState, messageId: string, staffName: st
   m.approvedBy = staffName;
   m.approvedAt = state.now;
   m.statusReasons = undefined;
-  log(state, m.garageId, "approved", `${staffName} approved follow-up ${m.step} for ${m.quoteId ? quoteOf(state, m.quoteId).customerName : "?"}`, m.quoteId ?? undefined);
+  log(state, m.garageId, "approved", `${staffName} approved ${messageLabel(m).toLowerCase()} for ${m.quoteId ? quoteOf(state, m.quoteId).customerName : "?"}`, m.quoteId ?? undefined);
 }
 
 export type SendReportItem = {
@@ -236,6 +238,7 @@ const TERMINAL_BLOCKS: Partial<Record<GateReason, Message["status"]>> = {
   number_suppressed: "cancelled",
   quote_expired: "cancelled",
   revision_changed: "cancelled",
+  invoice_settled: "cancelled",
 };
 
 /**
@@ -259,16 +262,19 @@ export async function dispatchApproved(state: AppState, provider: SmsProvider): 
 
     const quote = quoteOf(state, m.quoteId!);
     const garage = garageOf(state, m.garageId);
-    const template = state.templates.find((t) => t.id === m.templateId);
-    const reasons = checkSendGate({
-      now: state.now,
-      garage,
-      quote,
-      template,
-      suppressions: state.suppressions,
-      window: { windowStart: m.windowStart!, windowEnd: m.windowEnd! },
-      message: m,
-    });
+    const window = { windowStart: m.windowStart!, windowEnd: m.windowEnd! };
+    const invoice = m.invoiceId ? state.invoices.find((i) => i.id === m.invoiceId) : undefined;
+    const reasons = invoice
+      ? checkInvoiceGate({ now: state.now, garage, quote, invoice, step: m.invoiceStep ?? 0, suppressions: state.suppressions, window, message: m })
+      : checkSendGate({ now: state.now, garage, quote, template: state.templates.find((t) => t.id === m.templateId), suppressions: state.suppressions, window, message: m });
+
+    // Invoice texts outside opening hours stay queued for the next opening instead of expiring.
+    if (invoice && reasons.length && reasons.every((r) => r === "before_window" || r === "window_expired")) {
+      m.status = "approved";
+      m.claimedAt = undefined;
+      report.push({ messageId: m.id, quoteId: quote.id, outcome: "blocked", reasons });
+      continue;
+    }
 
     if (reasons.length) {
       const terminal = reasons.map((r) => TERMINAL_BLOCKS[r]).find(Boolean);
@@ -290,19 +296,19 @@ export async function dispatchApproved(state: AppState, provider: SmsProvider): 
       m.sentAt = state.now;
       m.providerMessageId = result.providerMessageId;
       m.deliveryStatus = result.status;
-      log(state, garage.id, "sent", `Follow-up ${m.step} sent to ${quote.customerName} via ${provider.name} (${result.providerMessageId})`, quote.id);
+      log(state, garage.id, "sent", `${messageLabel(m)} sent to ${quote.customerName} via ${provider.name} (${result.providerMessageId})`, quote.id);
       report.push({ messageId: m.id, quoteId: quote.id, outcome: "sent" });
     } else if (result.kind === "rejected") {
       m.status = "failed";
       m.statusReasons = [];
       m.deliveryStatus = result.error;
-      log(state, garage.id, "send_failed", `Provider rejected follow-up ${m.step} for ${quote.customerName}: ${result.error}`, quote.id);
+      log(state, garage.id, "send_failed", `Provider rejected ${messageLabel(m).toLowerCase()} for ${quote.customerName}: ${result.error}`, quote.id);
       report.push({ messageId: m.id, quoteId: quote.id, outcome: "failed", error: result.error });
     } else {
       // Ambiguous: the provider may have accepted it. Never retry blindly.
       m.status = "needs_reconciliation";
       m.deliveryStatus = result.error;
-      openTask(state, garage.id, "reconcile_send", [quote.id], `Check the provider log: follow-up ${m.step} to ${quote.customerName} may or may not have been sent. Do not resend until reconciled.`, m.id);
+      openTask(state, garage.id, "reconcile_send", [quote.id], `Check the provider log: ${messageLabel(m).toLowerCase()} to ${quote.customerName} may or may not have been sent. Do not resend until reconciled.`, m.id);
       log(state, garage.id, "needs_reconciliation", `Send to ${quote.customerName} timed out; marked for reconciliation, no retry`, quote.id);
       report.push({ messageId: m.id, quoteId: quote.id, outcome: "needs_reconciliation", error: result.error });
     }
@@ -496,6 +502,7 @@ export function markCompleted(state: AppState, quoteId: string, jobValuePence: n
   q.jobValuePence = jobValuePence;
   q.statusConfirmedAt = state.now;
   log(state, q.garageId, "completed", `${staffName} marked ${q.customerName}'s job complete (${formatPounds(jobValuePence)})`, q.id);
+  draftInvoiceText(state, issueInvoice(state, q.id)); // invoice raised now; its text is drafted (or queued) straight away
 }
 
 export function setGaragePaused(state: AppState, garageId: string, paused: boolean, staffName: string) {

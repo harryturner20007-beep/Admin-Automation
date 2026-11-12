@@ -137,3 +137,16 @@ export function fromLondonInput(value: string): string {
   const [, y, mo, d, hh, mm] = m.map(Number);
   return londonToUtc({ y, m: mo, d }, hh, mm).toISOString();
 }
+
+/** "YYYY-MM-DD" for the UK calendar day containing this instant. Compare these strings directly. */
+export const ukDate = (at: string | Date) => ymd(londonParts(at));
+
+/** Whole days from UK date `a` to UK date `b` (positive when b is later). */
+export function daysBetween(a: string, b: string): number {
+  return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / DAY_MS);
+}
+
+/** "YYYY-MM-DD" plus n calendar days. */
+export function addDaysYmd(d: string, n: number): string {
+  return new Date(Date.parse(`${d}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
+}

@@ -2,11 +2,12 @@
 // protected worker endpoint; in demo mode the demo clock drives it tick by tick.
 import type { SmsProvider } from "@/sms/provider";
 import { applyDeliveryStatus, dispatchApproved, runFollowUpCheck, type CheckReportItem, type SendReportItem } from "./engine";
+import { runInvoiceCheck, type InvoiceReportItem } from "./invoices";
 import type { AppState } from "./types";
 
 export const TICK_MS = 15 * 60 * 1000;
 
-export type RunReport = { check: CheckReportItem[]; sends: SendReportItem[] };
+export type RunReport = { check: CheckReportItem[]; invoices: InvoiceReportItem[]; sends: SendReportItem[] };
 
 /**
  * One scheduler run: draft (or, in Automatic mode, queue) everything due, then send what is approved.
@@ -15,6 +16,7 @@ export type RunReport = { check: CheckReportItem[]; sends: SendReportItem[] };
 export async function runScheduledCheck(state: AppState, provider: SmsProvider, garageIds?: string[]): Promise<RunReport> {
   const ids = garageIds ?? state.garages.map((g) => g.id);
   const check = runFollowUpCheck(state, ids);
+  const invoices = runInvoiceCheck(state, ids);
   const sends = state.messages.some((m) => m.status === "approved" && ids.includes(m.garageId)) ? await dispatchApproved(state, provider) : [];
   if (provider.name === "mock") {
     // The mock provider "delivers" at once; Twilio reports delivery later through a status webhook.
@@ -23,7 +25,7 @@ export async function runScheduledCheck(state: AppState, provider: SmsProvider, 
       applyDeliveryStatus(state, { eventId: `${m.providerMessageId}:delivered`, providerMessageId: m.providerMessageId!, status: "delivered" });
     }
   }
-  return { check, sends };
+  return { check, invoices, sends };
 }
 
 /**
@@ -38,11 +40,12 @@ export async function advanceDemoClock(state: AppState, ms: number, provider: Sm
     state.now = new Date(end).toISOString();
     return null;
   }
-  const report: RunReport = { check: [], sends: [] };
+  const report: RunReport = { check: [], invoices: [], sends: [] };
   for (let t = Math.floor(Date.parse(state.now) / TICK_MS) * TICK_MS + TICK_MS; t <= end; t += TICK_MS) {
     state.now = new Date(t).toISOString();
     const r = await runScheduledCheck(state, provider, active);
     report.check.push(...r.check.filter((c) => c.outcome !== "already_handled"));
+    report.invoices.push(...r.invoices.filter((c) => c.outcome === "drafted")); // blocked items repeat every tick
     report.sends.push(...r.sends);
   }
   state.now = new Date(end).toISOString();

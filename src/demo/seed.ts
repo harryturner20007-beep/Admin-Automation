@@ -4,11 +4,14 @@
 import {
   applyDeliveryStatus,
   approveMessage,
+  confirmBooking,
   confirmStatus,
   dispatchApproved,
+  markCompleted,
   receiveInbound,
   runFollowUpCheck,
 } from "@/domain/engine";
+import { runInvoiceCheck } from "@/domain/invoices";
 import { DEFAULT_FOLLOW_UPS } from "@/domain/schedule";
 import { DEFAULT_TEMPLATES } from "@/domain/templates";
 import type { AppState, Garage, Quote, Template } from "@/domain/types";
@@ -127,6 +130,20 @@ const seedQuotes: Quote[] = [
     statusConfirmedAt: "2026-11-04T09:15:00.000Z",
     eligibilityEvidenceRef: "Job card NM-1031: SMS follow-up consent ticked",
   }),
+  quote({
+    id: "q_fay",
+    sourceQuoteId: "NM-1022",
+    customerName: "Fay Morgan",
+    phone: "+447700900106",
+    vehicle: "2015 Honda Jazz",
+    registration: "FY15 HJZ",
+    job: "clutch & flywheel",
+    customerJobDescription: "clutch and flywheel replacement",
+    amountPence: 52000,
+    quoteSentAt: "2026-10-20T11:00:00.000Z",
+    statusConfirmedAt: "2026-10-20T11:00:00.000Z",
+    eligibilityEvidenceRef: "Job card NM-1022: SMS follow-up consent ticked",
+  }),
 ];
 
 export function emptyState(now: string): AppState {
@@ -135,6 +152,7 @@ export function emptyState(now: string): AppState {
     garages: [structuredClone(garage)],
     templates: structuredClone(templates),
     quotes: structuredClone(seedQuotes),
+    invoices: [],
     messages: [],
     suppressions: [],
     tasks: [],
@@ -165,6 +183,16 @@ export async function buildSeedState(): Promise<AppState> {
   const s = emptyState("2026-11-06T10:00:00.000Z");
   const provider = new MockSmsProvider("accept");
   const at = (iso: string) => (s.now = iso);
+
+  // Fay: booked 22 Oct, job done Tue 3 Nov. Invoice texted that afternoon, first payment reminder Tue 10 Nov; still unpaid.
+  at("2026-10-22T09:30:00.000Z");
+  confirmBooking(s, "q_fay", DEMO_STAFF);
+  at("2026-11-03T15:30:00.000Z");
+  markCompleted(s, "q_fay", 51250, DEMO_STAFF);
+  await approveAndSendAll(s, provider);
+  at("2026-11-10T10:00:00.000Z");
+  runInvoiceCheck(s);
+  await approveAndSendAll(s, provider);
 
   // Fri 6 Nov: first follow-ups for Chloe, Daniel and Emma
   at("2026-11-06T08:45:00.000Z");

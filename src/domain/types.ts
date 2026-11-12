@@ -42,6 +42,9 @@ export type Quote = {
   registration?: string; // normalised, e.g. "AB12 CDE"
   job: string; // as entered by the garage; may contain workshop shorthand
   customerJobDescription?: string; // short customer-facing wording used in texts instead of `job`
+  outcome?: "needs_time" | "no_reply"; // last staff-recorded outcome while the quote stays open
+  reminderDate?: string; // "YYYY-MM-DD" (UK date) staff chose to chase again; holds automatic follow-ups until then
+  contactPendingAt?: string; // staff opened an external app to contact the customer; outcome not yet recorded
   amountPence: number; // quoted price, integer pence; completed value is jobValuePence
   quoteSentAt: string; // when the garage sent the quote (ISO, UTC)
   status: QuoteStatus;
@@ -96,7 +99,9 @@ export type Message = {
   fromPhone: string;
   toPhone: string;
   // outbound
-  step?: 1 | 2;
+  step?: 1 | 2; // follow-up step; unset on invoice texts
+  invoiceId?: string; // set on invoice texts (the invoice itself and its reminders)
+  invoiceStep?: InvoiceStep;
   revision?: number;
   sendKey?: string; // unique: garage:quote:revision:step
   templateId?: string;
@@ -114,6 +119,22 @@ export type Message = {
   providerInboundId?: string;
   category?: ReplyCategory;
   matchedQuoteIds?: string[];
+};
+
+/** 0 = the invoice text, 1 = first reminder (7 days), 2 = second reminder (14 days). */
+export type InvoiceStep = 0 | 1 | 2;
+
+export type Invoice = {
+  id: string;
+  garageId: string;
+  quoteId: string;
+  number: string; // per garage, "INV-0001"
+  amountPence: number; // the completed job value
+  issuedAt: string; // when the job was recorded complete
+  dueDate: string; // "YYYY-MM-DD" (UK date)
+  status: "unpaid" | "paid";
+  paidAt?: string;
+  chasePaused: boolean; // staff stopped automatic reminders for this invoice
 };
 
 export type Suppression = {
@@ -166,6 +187,7 @@ export type AppState = {
   garages: Garage[];
   templates: Template[];
   quotes: Quote[];
+  invoices: Invoice[];
   messages: Message[];
   suppressions: Suppression[];
   tasks: StaffTask[];

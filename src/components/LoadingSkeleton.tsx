@@ -1,26 +1,23 @@
-/** Shown while the demo data loads: the shape of the Quotes board, not a spinner. */
+/** Shown while the demo data loads: the shape of the Quotes workspace, not a spinner. */
 export function LoadingSkeleton() {
+  const pulse = "motion-safe:animate-pulse";
   return (
-    <div className="min-h-full" aria-busy="true" aria-label="Loading quotes">
-      <div className="bg-graphite">
-        <div className="h-[86px] border-b border-white/8" />
-        <div className="mx-auto max-w-6xl px-4 pt-12 pb-16">
-          <div className="h-14 w-2/3 max-w-xl rounded bg-white/10 motion-safe:animate-pulse" />
-          <div className="mt-6 h-5 w-1/2 max-w-md rounded bg-white/8 motion-safe:animate-pulse" />
+    <div className="min-h-full md:pl-16 desk:pl-[208px]" aria-busy="true" aria-label="Loading quotes">
+      <div className="fixed inset-y-0 left-0 hidden w-16 border-r border-line bg-white md:block desk:w-[208px]" />
+      <div className="p-4 md:p-8">
+        <div className={`h-8 w-40 rounded-lg bg-line ${pulse}`} />
+        <div className={`mt-2 h-4 w-72 max-w-full rounded bg-line/70 ${pulse}`} />
+        <div className="mt-6 grid gap-4 md:grid-cols-3">
+          {Array.from({ length: 3 }, (_, i) => <div key={i} className="h-[92px] rounded-xl border border-line bg-white" />)}
         </div>
-      </div>
-      <div className="mx-auto max-w-6xl px-4 py-6">
-        <div className="mb-3 h-7 w-72 rounded bg-steel-line/70" />
-        <div className="overflow-hidden rounded-md border border-steel-line bg-white">
+        <div className="mt-6 overflow-hidden rounded-xl border border-line bg-white">
+          <div className="h-[76px] border-b border-line" />
           {Array.from({ length: 5 }, (_, i) => (
-            <div key={i} className="flex items-center gap-5 border-b border-steel-line/70 px-4 py-3.5 last:border-0">
-              <div className="flex-1 space-y-1.5">
-                <div className="h-4 w-40 rounded bg-steel-line motion-safe:animate-pulse" />
-                <div className="h-3 w-64 max-w-full rounded bg-steel-line/60 motion-safe:animate-pulse" />
-              </div>
-              <div className="hidden h-[22px] w-24 rounded-[3px] bg-steel-line/60 md:block" />
-              <div className="h-5 w-16 rounded bg-steel-line motion-safe:animate-pulse" />
-              <div className="hidden h-7 w-28 rounded bg-steel-line/60 md:block" />
+            <div key={i} className="flex h-20 items-center gap-6 border-b border-line px-4 last:border-0">
+              <div className="flex-1 space-y-2"><div className={`h-4 w-24 rounded bg-line ${pulse}`} /><div className={`h-3 w-40 rounded bg-line/70 ${pulse}`} /></div>
+              <div className={`hidden h-4 w-48 rounded bg-line/70 md:block ${pulse}`} />
+              <div className={`h-4 w-16 rounded bg-line ${pulse}`} />
+              <div className="hidden h-11 w-28 rounded-lg bg-line/60 md:block" />
             </div>
           ))}
         </div>

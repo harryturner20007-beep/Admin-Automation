@@ -1,312 +1,363 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useRef, useState } from "react";
-import { confirmBooking, formatPounds } from "@/domain/engine";
-import { formatLondon, londonParts } from "@/domain/time";
+import { gsap } from "gsap";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { formatPounds } from "@/domain/engine";
+import { bucketOf, canChase, followUpFor, priorityCompare, updatedAt, type Bucket, type FollowUp } from "@/domain/queue";
 import type { Quote } from "@/domain/types";
+import { formatLondon } from "@/domain/time";
 import { useAction, useDemo } from "@/demo/store";
-import { ActionButton } from "./ActionButton";
 import { AddQuoteDrawer } from "./AddQuoteDrawer";
-import { QuoteDetails } from "./QuoteDetails";
-import { FILTERS, matchesSearch, quoteRow, type FilterId, type QuoteRow } from "./quoteRows";
-import { queueReply } from "./RepliesView";
-import { Button, Icon, InlineFeedback, Plate } from "./ui";
+import { CountTo, lineReveal, motionAllowed, RISE, Rise, Words } from "./motion";
+import { QuotePanel } from "./QuotePanel";
+import { statusOf } from "./quoteStatus";
+import { Button, Icon, InlineFeedback, PlateLabel, StatusLabel } from "./ui";
 
-const EMPTY: Record<FilterId, string> = {
-  action: "Nothing needs you right now. Drafts, replies and booking requests land here.",
-  due: "No follow-ups due today. The next ones appear here on the morning they're due.",
-  upcoming: "No follow-ups coming up. Quotes with SMS consent get two, 2 and 5 business days after they're sent.",
-  closed: "No closed quotes yet. Booked, declined, expired and opted-out quotes end up here.",
-  all: "No quotes yet. Add one the garage has already sent.",
-};
+// Loaded on demand: pulls in Animate.css and (lazily) Three.js only when this empty state shows.
+const NoFollowUpsDue = dynamic(() => import("./NoFollowUpsDue").then((m) => m.NoFollowUpsDue), { ssr: false });
 
-const plural = (n: number, one: string, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
+const CARDS: { id: Exclude<Bucket, "other">; label: string }[] = [
+  { id: "needs_follow_up", label: "Needs follow-up" },
+  { id: "awaiting_reply", label: "Awaiting reply" },
+  { id: "accepted", label: "Accepted" },
+];
 
-/** Inline link-button used inside the headline's "Today" sentence. */
-const countLink = "font-semibold text-white underline decoration-signal decoration-2 underline-offset-4 transition-colors hover:decoration-white focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal";
+type Sort = "priority" | "updated" | "value";
+const SORTS: { id: Sort; label: string }[] = [
+  { id: "priority", label: "Priority" },
+  { id: "updated", label: "Recently updated" },
+  { id: "value", label: "Quote value" },
+];
+
+const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
+const followTone = (f: FollowUp) => (f.kind === "overdue" || f.kind === "today" || f.kind === "outcome_needed" || f.kind === "reply" ? "font-medium text-attention" : "text-muted");
+const squash = (s: string) => s.toLowerCase().replace(/\s+/g, "");
+
+// Header, cards and the first rows animate in once per page load, not on every visit back to /quotes.
+let introPlayed = false;
 
 const MODE_LABEL = { off: "Off", draft: "Draft for approval", automatic: "Automatic" } as const;
 
-function AutomationReadout({ onShowDrafts }: { onShowDrafts: () => void }) {
+/** Automation at a glance: mode, last check, drafts waiting, and a manual check. All simulated in the demo. */
+function AutomationStrip({ play }: { play: boolean }) {
   const { state, garageId, runCheck } = useDemo();
   const garage = state.garages.find((g) => g.id === garageId)!;
   const check = useAction();
   const drafts = state.messages.filter((m) => m.garageId === garageId && m.status === "awaiting_approval").length;
-  const light = garage.mode === "off" ? "bg-white/25" : garage.mode === "automatic" ? "bg-signal" : "bg-white";
   return (
-    <div className="border-t border-white/10">
-      <div className="mx-auto flex max-w-6xl flex-wrap items-center gap-x-6 gap-y-3 px-4 py-3 text-sm text-steel">
-        <span className="flex items-center gap-2.5 text-white">
-          <span aria-hidden className={`h-2.5 w-2.5 rounded-full ${light}`} />
-          <span>
-            Follow-ups: <span className="font-semibold">{MODE_LABEL[garage.mode]}</span>
-          </span>
+    <Rise play={play} delay={160} className="mt-6">
+      <div className="flex flex-wrap items-center gap-x-6 gap-y-2 rounded-xl border border-line bg-white px-4 py-2 text-sm text-muted">
+        <span>
+          Follow-ups: <span className="font-medium text-text">{MODE_LABEL[garage.mode]}</span>
         </span>
         {/* Dashed outline = simulated, everywhere in the app. */}
-        <span className="rounded border border-dashed border-white/35 px-1.5 py-0.5 text-xs text-white" title="Checks run every 15 minutes of demo-clock time, standing in for the scheduler. Texts go to the mock SMS provider.">
+        <span className="rounded border border-dashed border-muted/60 px-1.5 py-0.5 text-xs text-text" title="In this demo, checks run every 15 minutes of demo-clock time and texts go to the mock SMS provider.">
           {garage.mode === "automatic" ? "Simulated sending" : "Simulated checks"}
         </span>
         <span>
-          Last run <span className="text-white tabular-nums">{garage.lastCheckAt ? formatLondon(garage.lastCheckAt) : "never"}</span>
+          Last check <span className="text-text tabular-nums">{garage.lastCheckAt ? formatLondon(garage.lastCheckAt) : "never"}</span>
         </span>
-        {drafts > 0 ? (
-          <button onClick={onShowDrafts} className={countLink}>{plural(drafts, "draft")} awaiting approval</button>
-        ) : (
-          <span>No drafts awaiting approval</span>
-        )}
+        <span>
+          <span className="text-text tabular-nums">{drafts}</span> {drafts === 1 ? "draft" : "drafts"} awaiting approval
+        </span>
         <span className="ml-auto flex flex-wrap items-center gap-2">
-          <InlineFeedback feedback={check.feedback?.ok ? null : check.feedback} onDark />
-          <Link href="/settings" className="inline-flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-medium text-slate-200 ring-1 ring-white/20 ring-inset transition-colors hover:bg-white/10 hover:text-white focus-visible:outline-2 focus-visible:outline-signal">
-            <Icon name="sliders" className="h-3.5 w-3.5" />
-            Follow-up settings
+          <InlineFeedback feedback={check.feedback?.ok ? null : check.feedback} />
+          <Link href="/settings" className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg px-3 text-sm font-medium text-accent hover:bg-canvas hover:text-accent-hover ${focusRing}`}>
+            Settings
           </Link>
-          <Button size="sm" variant="onDark" disabled={check.pending || garage.mode === "off"} aria-busy={check.pending} onClick={() => check.run(runCheck, "done")}>
+          <Button size="sm" disabled={check.pending || garage.mode === "off"} aria-busy={check.pending} onClick={() => check.run(runCheck, "done")}>
             <Icon name="refresh" className="h-3.5 w-3.5" />
             {check.pending ? "Checking…" : "Run check now"}
           </Button>
         </span>
       </div>
-    </div>
+    </Rise>
   );
 }
-
-/** Status in words, not a pill: urgent states in ink, stopped in red, confirmed with a check. */
-function StatusText({ r }: { r: QuoteRow }) {
-  const tone = r.status.tone === "red" ? "text-red-700" : r.status.tone === "green" ? "text-ink" : r.needsAction ? "text-ink" : "text-slate-600";
-  return (
-    <span className={`flex items-center gap-1.5 text-sm font-medium ${tone}`}>
-      {r.status.tone === "green" && <Icon name="check" className="h-3.5 w-3.5 text-signal" />}
-      {r.status.tone === "red" && <Icon name="pause" className="h-3.5 w-3.5" />}
-      {r.status.label}
-    </span>
-  );
-}
-
-function PrimaryAction({ row, onOpen }: { row: QuoteRow; onOpen: () => void }) {
-  const { act, staff, notify } = useDemo();
-  const { kind, label } = row.primary;
-  if (kind === "confirm") {
-    return (
-      <ActionButton
-        variant="primary"
-        label={label}
-        onRun={() => act((s) => confirmBooking(s, row.q.id, staff))}
-        success="Booking confirmed"
-        onDone={() => notify(`Booking confirmed for ${row.q.customerName}. Follow-ups stopped.`, [row.q.id])}
-      />
-    );
-  }
-  if (kind === "reply" && row.replyTask) {
-    return (
-      <Link
-        href={`/replies#${row.replyTask.id}`}
-        onClick={() => queueReply(row.replyTask!.id)}
-        className="inline-flex items-center rounded-md bg-signal px-2.5 py-1 text-xs font-medium whitespace-nowrap text-white transition-colors hover:bg-signal-deep focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal"
-      >
-        {label}
-      </Link>
-    );
-  }
-  return row.needsAction ? (
-    <Button size="sm" variant="primary" onClick={onOpen}>{label}</Button>
-  ) : (
-    <Button size="sm" variant="ghost" onClick={onOpen}>Open</Button>
-  );
-}
-
-// Clicks on buttons/links inside a row shouldn't also open the drawer.
-const fromControl = (e: React.MouseEvent) => !!(e.target as HTMLElement).closest("button, a, input, select, textarea");
 
 export function QuotesView() {
-  const { state, garageId, notice, notify } = useDemo();
-  const [filter, setFilter] = useState<FilterId>("action");
+  const { state, garageId } = useDemo();
+  const [bucket, setBucket] = useState<Exclude<Bucket, "other"> | null>(null);
+  const [status, setStatus] = useState("all");
+  const [sort, setSort] = useState<Sort>("priority");
   const [search, setSearch] = useState("");
-  // Rows staff touched (or just added) stay put until the filter changes, so the queue doesn't jump mid-task.
-  const [kept, setKept] = useState<Set<string>>(new Set());
   const [selected, setSelected] = useState<string | null>(null);
+  const [openIndex, setOpenIndex] = useState(0); // where the open quote sat, so "Next quote" works after it leaves the filter
   const [adding, setAdding] = useState(false);
-  const queueRef = useRef<HTMLDivElement>(null);
+  const [flash, setFlash] = useState<{ id: string; n: number } | null>(null);
+  const [enter, setEnter] = useState(true); // panel slides in when it opens, not when switching quotes
+  const [intro] = useState(() => !introPlayed);
   const addBtn = useRef<HTMLButtonElement>(null);
+  const title = useRef<HTMLHeadingElement>(null);
 
-  const rows = state.quotes.filter((q) => q.garageId === garageId).map((q) => quoteRow(state, q)).reverse(); // newest first
-  const counts = Object.fromEntries(FILTERS.map((f) => [f.id, rows.filter(f.test).length])) as Record<FilterId, number>;
-  const test = FILTERS.find((f) => f.id === filter)!.test;
-  const visible = rows.filter((r) => (test(r) || kept.has(r.q.id)) && matchesSearch(r, search));
-  const elsewhere = search ? rows.filter((r) => matchesSearch(r, search)).length - visible.length : 0;
+  const quotes = state.quotes.filter((q) => q.garageId === garageId);
+  // Keep the chosen status listed even when no quote has it any more, so the select never misstates the filter.
+  const statuses = [...new Set([...quotes.map((q) => statusOf(state, q).label), ...(status === "all" ? [] : [status])])].sort();
+  const term = squash(search);
+  const compare = sort === "priority" ? priorityCompare(state) : sort === "updated" ? (a: Quote, b: Quote) => updatedAt(state, b).localeCompare(updatedAt(state, a)) : (a: Quote, b: Quote) => b.amountPence - a.amountPence;
+  const visible = quotes
+    .filter((q) => !bucket || bucketOf(state, q) === bucket)
+    .filter((q) => status === "all" || statusOf(state, q).label === status)
+    .filter((q) => !term || [q.customerName, q.registration ?? "", q.job, q.customerJobDescription ?? "", q.vehicle].some((v) => squash(v).includes(term)))
+    .sort(compare);
+  const filtered = !!bucket || status !== "all" || !!term;
 
-  const now = londonParts(state.now);
-  const open = rows.filter((r) => r.q.status === "open" && !r.suppressed);
-  const openValue = open.reduce((s, r) => s + r.q.amountPence, 0);
-  const due = counts.due;
-  const unread = state.tasks.filter((t) => t.garageId === garageId && t.status === "open" && !t.readAt).length;
-  const booked = rows.filter((r) => r.q.bookedAt && londonParts(r.q.bookedAt).y === now.y && londonParts(r.q.bookedAt).m === now.m).length;
-  const month = new Intl.DateTimeFormat("en-GB", { month: "long", timeZone: "Europe/London" }).format(new Date(state.now));
-
-  const keep = (id: string) => setKept((k) => (k.has(id) ? k : new Set(k).add(id)));
-  const changeFilter = (id: FilterId) => {
-    setFilter(id);
-    setKept(new Set());
-  };
-  const jumpTo = (id: FilterId) => {
-    changeFilter(id);
-    setSearch("");
-    queueRef.current?.scrollIntoView({ block: "start" });
-  };
-  const openQuote = (id: string) => {
-    keep(id);
+  const open = (id: string) => {
+    setOpenIndex(Math.max(0, visible.findIndex((q) => q.id === id)));
     setAdding(false);
+    setEnter(selected === null);
     setSelected(id);
   };
-  // Back to the row that was opened; the page itself never scrolled, so the queue position is unchanged.
+  // Back to the row that opened the panel, once the panel is gone; the page never scrolled, so the user's place is unchanged.
+  const returnTo = useRef<string | null>(null);
   const close = useCallback(() => {
-    const id = selected;
+    returnTo.current = selected;
     setSelected(null);
-    const target = [...document.querySelectorAll<HTMLElement>(`[data-row-open="${id}"]`)].find((el) => el.offsetParent);
-    target?.focus({ preventScroll: true });
   }, [selected]);
-  const closeDrawer = useCallback(() => {
-    setAdding(false);
-    addBtn.current?.focus({ preventScroll: true });
-  }, []);
-  const onSaved = (q: Quote) => {
-    keep(q.id);
+  useEffect(() => {
+    if (selected !== null || !returnTo.current) return;
+    [...document.querySelectorAll<HTMLElement>(`[data-row-open="${returnTo.current}"]`)].find((el) => el.offsetParent)?.focus({ preventScroll: true });
+    returnTo.current = null;
+  }, [selected]);
+  const nextIndex = (() => {
+    const i = visible.findIndex((q) => q.id === selected);
+    return i >= 0 ? i + 1 : openIndex; // if the saved quote left the filter, the next one now sits in its old slot
+  })();
+  const next = visible[nextIndex];
+  const clearFilters = () => {
+    setBucket(null);
+    setStatus("all");
     setSearch("");
-    setAdding(false);
-    const r = quoteRow(state, q); // state is one render behind, but this quote's own row is computed from it fine
-    notify(`Quote ${q.sourceQuoteId} saved for ${q.customerName}. ${q.eligibilityEvidenceRef ? r.next.replace(/^Follow-up 1 on/, "First follow-up on") : "SMS follow-ups are off."}`, [q.id]);
-    requestAnimationFrame(() => {
-      const btn = [...document.querySelectorAll<HTMLElement>(`[data-row-open="${q.id}"]`)].find((el) => el.offsetParent);
-      btn?.closest("li")?.scrollIntoView({ block: "nearest" });
-      btn?.focus({ preventScroll: true }); // keyboard users land on the quote they just added
-    });
   };
-  const flashKey = (id: string) => (notice?.quoteIds.includes(id) ? notice.id : null);
+
+  // First load only: h1 line reveal and the first 8 visible rows rising in. Filtering, sorting and searching never animate.
+  useLayoutEffect(() => {
+    introPlayed = true;
+    if (!intro || !motionAllowed()) return;
+    const tweens = [title.current && lineReveal(title.current)];
+    const rows = [...document.querySelectorAll<HTMLElement>("[data-row]")].filter((el) => el.offsetParent).slice(0, 8);
+    if (rows.length) tweens.push(gsap.from(rows, { ...RISE, delay: 0.2, stagger: 0.03 }));
+    return () => tweens.forEach((t) => t?.revert());
+  }, [intro]);
+
+  // Brief highlight on the row whose status was just saved (skipped for reduced motion).
+  useEffect(() => {
+    if (!flash || !motionAllowed()) return;
+    const tween = gsap.fromTo(`[data-row="${flash.id}"]`, { backgroundColor: "#EAF4F6" }, { backgroundColor: "rgba(234,244,246,0)", duration: 0.9, ease: "power1.out", clearProps: "backgroundColor" });
+    return () => {
+      tween.revert();
+    };
+  }, [flash]);
+
+  const action = (q: Quote, full = false) => {
+    const chase = canChase(state, q);
+    return (
+      <Button variant={chase ? "primary" : "secondary"} size="sm" className={full ? "w-full" : ""} onClick={() => open(q.id)} aria-label={`${chase ? "Chase quote" : "View quote"} for ${q.customerName}`}>
+        {chase ? "Chase quote" : "View quote"} <Icon name="next" className="nudge-icon h-3.5 w-3.5" />
+      </Button>
+    );
+  };
+
+  const empty =
+    quotes.length === 0 ? (
+      <Rise className="px-6 py-12 text-center">
+        <h2 className="text-lg font-semibold text-text">No quotes yet</h2>
+        <p className="mt-1 text-sm text-muted">Add a quote the garage has sent, and it appears here ready to chase.</p>
+        <Button className="hover-turn mt-4" variant="primary" onClick={() => setAdding(true)}><Icon name="plus" className="nudge-icon h-4 w-4" /> Add quote</Button>
+      </Rise>
+    ) : bucket === "needs_follow_up" && !term && status === "all" ? (
+      <NoFollowUpsDue onViewAll={clearFilters} />
+    ) : (
+      <Rise className="px-6 py-12 text-center">
+        <h2 className="text-lg font-semibold text-text">No quotes match</h2>
+        <p className="mt-1 text-sm text-muted">{term ? `Nothing matches “${search}” with these filters.` : "No quotes fit these filters."}</p>
+        <Button className="mt-4" variant="secondary" onClick={clearFilters}>Clear search and filters</Button>
+      </Rise>
+    );
 
   return (
-    <>
-      {/* Graphite band: the headline is the open value as a sentence, then today's work as links. */}
-      <section aria-labelledby="board-title" className="bg-graphite text-white">
-        <div className="mx-auto max-w-6xl px-4 pt-6 pb-6 sm:pt-12 sm:pb-7">
-          <div className="flex flex-wrap items-start justify-between gap-6">
-            <h1 id="board-title" className="max-w-[16ch] text-[clamp(2.4rem,7vw,4.75rem)] leading-[0.95] font-extrabold tracking-[-0.025em] [font-stretch:125%]">
-              <span className="tabular-nums">{formatPounds(openValue)}</span> open across {plural(open.length, "quote")}
-            </h1>
-            <Button ref={addBtn} variant="signalOnDark" className="px-4 py-2.5 text-[15px]" onClick={() => { setSelected(null); setAdding(true); }}>
-              <Icon name="plus" />
-              Add quote
-            </Button>
+    <div className="desk:flex desk:items-start">
+      <div className="min-w-0 flex-1 p-4 md:p-8">
+        {/* Header */}
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 ref={title} aria-label="Quotes" className="text-[28px] leading-tight font-[650] text-text"><Words text="Quotes" /></h1>
+            <Rise play={intro} delay={120}>
+              <p className="mt-1 text-sm text-muted">Follow up with customers and record their decisions.</p>
+            </Rise>
           </div>
-          <p className="mt-5 max-w-[62ch] text-base leading-relaxed text-steel sm:mt-6 sm:text-lg">
-            Today:{" "}
-            {due > 0 ? <button className={countLink} onClick={() => jumpTo("due")}>{plural(due, "follow-up")} due</button> : <span className="text-white">no follow-ups due</span>},{" "}
-            {unread > 0 ? <Link className={countLink} href="/replies">{plural(unread, "unread reply", "unread replies")}</Link> : <span className="text-white">no unread replies</span>}
-            . <span className="text-white tabular-nums">{plural(booked, "booking")}</span> confirmed in {month}.
-          </p>
-        </div>
-        <AutomationReadout onShowDrafts={() => jumpTo("due")} />
-      </section>
-
-      {/* Work area: quiet, high-contrast, the queue is the main surface. */}
-      <div ref={queueRef} className={`mx-auto max-w-6xl scroll-mt-24 px-4 py-6 ${selected || adding ? "2xl:pr-[496px]" : ""}`}>
-        <div className="mb-3 flex flex-wrap items-center gap-3">
-          <div role="tablist" aria-label="Filter quotes" className="flex flex-wrap gap-x-0.5">
-            {FILTERS.map((f) => (
-              <button
-                key={f.id}
-                role="tab"
-                aria-selected={filter === f.id}
-                onClick={() => changeFilter(f.id)}
-                className={`shrink-0 border-b-2 px-2.5 pt-1 pb-1.5 text-sm font-medium whitespace-nowrap transition-colors focus-visible:outline-2 focus-visible:outline-signal ${filter === f.id ? "border-signal text-ink" : "border-transparent text-slate-500 hover:text-ink"}`}
-              >
-                {f.label} <span className="text-slate-500 tabular-nums">{counts[f.id]}</span>
-              </button>
-            ))}
-          </div>
-          <label className="relative ml-auto w-full sm:w-72">
-            <span className="sr-only">Search quotes</span>
-            <Icon name="search" className="pointer-events-none absolute top-1/2 left-2.5 h-4 w-4 -translate-y-1/2 text-slate-400" />
-            <input
-              type="search"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Customer, reference or registration"
-              className="w-full rounded-md border border-steel-line bg-white py-1.5 pr-3 pl-8 text-sm placeholder:text-slate-400 hover:border-steel focus:border-signal focus:ring-2 focus:ring-signal/15 focus:outline-none"
-            />
-          </label>
+          <Button ref={addBtn} variant="primary" className="hover-turn" onClick={() => { setSelected(null); setAdding(true); }}>
+            <Icon name="plus" className="nudge-icon h-4 w-4" /> Add quote
+          </Button>
         </div>
 
-        {visible.length === 0 ? (
-          <div className="rounded-md border border-dashed border-steel-line bg-white px-6 py-12 text-center text-sm text-slate-600">
-            {search ? (
-              <>
-                Nothing in {FILTERS.find((f) => f.id === filter)!.label} matches “{search}”.
-                {elsewhere > 0 && (
-                  <button className="ml-1 font-medium text-signal underline underline-offset-2" onClick={() => setFilter("all")}>
-                    Show {elsewhere} in All
-                  </button>
-                )}
-              </>
-            ) : (
-              EMPTY[filter]
-            )}
-          </div>
-        ) : (
-          <ul aria-label="Quotes" className="overflow-hidden rounded-md border border-steel-line bg-white">
-            {visible.map((r) => {
-              const urgent = r.needsAction;
-              const fk = flashKey(r.q.id);
+        <AutomationStrip play={intro} />
+
+        {/* Summary cards (filters) */}
+        <section aria-label="Summary" className="mt-6">
+          <div className="grid gap-2 md:grid-cols-3 md:gap-4">
+            {CARDS.map((c, i) => {
+              const members = quotes.filter((q) => bucketOf(state, q) === c.id);
+              const on = bucket === c.id;
               return (
-                <li
-                  key={r.q.id}
-                  onClick={(e) => !fromControl(e) && openQuote(r.q.id)}
-                  onClickCapture={() => keep(r.q.id)}
-                  className={`relative cursor-pointer border-b border-l-[3px] border-b-steel-line/70 transition-colors last:border-b-0 ${urgent ? "border-l-signal" : "border-l-transparent"} ${selected === r.q.id ? "bg-signal/[0.06]" : "hover:bg-work"}`}
-                >
-                  {fk !== null && <span key={fk} aria-hidden className="row-flash pointer-events-none absolute inset-0" />}
-                  <div
-                    className={`grid grid-cols-[minmax(0,1fr)_auto] gap-x-4 gap-y-1.5 px-4 md:grid-cols-[6.75rem_minmax(0,1fr)_6rem_minmax(0,15rem)_9rem] md:items-center md:gap-y-0 ${urgent ? "py-3.5" : "py-2.5"}`}
+                <Rise key={c.id} play={intro} delay={200 + i * 60}>
+                  <button
+                    aria-pressed={on}
+                    onClick={() => setBucket(on ? null : c.id)}
+                    className={`flex h-full w-full items-center justify-between gap-3 rounded-xl border px-4 py-3 text-left transition-colors duration-150 md:block md:py-4 ${focusRing} ${on ? "border-accent bg-selected" : "border-line bg-white hover:border-muted"}`}
                   >
-                    {/* Plate first, as on a workshop job board (desktop column) */}
-                    <div className="hidden md:block"><Plate reg={r.q.registration} ghost /></div>
-                    {/* Customer and job */}
-                    <div className="min-w-0">
-                      {r.q.registration && <div className="mb-1 md:hidden"><Plate reg={r.q.registration} /></div>}
-                      <button
-                        data-row-open={r.q.id}
-                        onClick={() => openQuote(r.q.id)}
-                        className={`block max-w-full truncate text-left text-[15px] text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-signal ${urgent ? "font-semibold" : "font-medium"}`}
-                        title={r.q.customerName}
-                      >
-                        {r.q.customerName}
-                      </button>
-                      <div className="mt-0.5 flex min-w-0 items-baseline gap-2 text-sm text-slate-600">
-                        <span className="truncate" title={r.q.job}>{r.q.job}</span>
-                        <span className="shrink-0 text-xs text-slate-500">{r.q.sourceQuoteId}</span>
-                      </div>
-                    </div>
-                    <div className="row-span-2 self-start text-right text-[17px] font-semibold tabular-nums [font-stretch:110%] md:row-span-1 md:self-center">
-                      {formatPounds(r.q.amountPence)}
-                    </div>
-                    {/* Status and next action */}
-                    <div className="min-w-0">
-                      <StatusText r={r} />
-                      <div className="mt-0.5 line-clamp-2 text-xs text-slate-500">{r.next}</div>
-                    </div>
-                    {/* Routine rows on phones: the whole row opens the quote, so skip the extra "Open" line. */}
-                    <div className={urgent ? "col-span-2 mt-1 md:col-span-1 md:mt-0 md:text-right" : "hidden md:block md:text-right"}>
-                      <PrimaryAction row={r} onOpen={() => openQuote(r.q.id)} />
-                    </div>
-                  </div>
-                </li>
+                    <span className="text-sm font-medium text-text">{c.label}</span>
+                    <span className="flex items-baseline gap-2 md:mt-1 md:block">
+                      <span className="block text-lg font-semibold text-text tabular-nums md:text-2xl"><CountTo value={members.length} format={String} /></span>
+                      <span className="text-xs text-muted tabular-nums"><CountTo value={members.reduce((s, q) => s + q.amountPence, 0)} format={formatPounds} step={100} /></span>
+                    </span>
+                  </button>
+                </Rise>
               );
             })}
-          </ul>
-        )}
+          </div>
+          <div className="mt-2 flex justify-end">
+            <button aria-pressed={!bucket} onClick={() => setBucket(null)} className={`min-h-11 rounded-lg px-3 text-sm font-medium ${focusRing} ${!bucket ? "text-accent" : "text-muted hover:bg-white hover:text-text"}`}>
+              All quotes <span className="tabular-nums">({quotes.length})</span>
+            </button>
+          </div>
+        </section>
+
+        {/* List */}
+        <div className="mt-2 overflow-hidden rounded-xl border border-line bg-white">
+          <div className="flex flex-wrap items-center gap-2 border-b border-line p-4">
+            <label className="relative w-full md:w-auto md:flex-1">
+              <span className="sr-only">Search quotes</span>
+              <Icon name="search" className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-muted" />
+              <input
+                type="search"
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search customer, registration or work"
+                className={`min-h-11 w-full rounded-lg border border-line bg-white pr-3 pl-9 text-sm text-text placeholder:text-muted hover:border-muted transition-[border-color,box-shadow] duration-[120ms] focus:border-accent focus:ring-2 focus:ring-accent/15 focus:outline-none`}
+              />
+            </label>
+            <label className="flex min-w-0 flex-1 items-center gap-2 text-sm text-muted md:flex-none">
+              <span className="sr-only md:not-sr-only">Status</span>
+              <select value={status} onChange={(e) => setStatus(e.target.value)} className={`min-h-11 w-full rounded-lg border border-line bg-white px-3 text-sm text-text md:w-auto ${focusRing}`}>
+                <option value="all">All statuses</option>
+                {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
+              </select>
+            </label>
+            <label className="flex min-w-0 flex-1 items-center gap-2 text-sm text-muted md:flex-none">
+              <span className="sr-only md:not-sr-only">Sort</span>
+              <select value={sort} onChange={(e) => setSort(e.target.value as Sort)} className={`min-h-11 w-full rounded-lg border border-line bg-white px-3 text-sm text-text md:w-auto ${focusRing}`}>
+                {SORTS.map((s) => <option key={s.id} value={s.id}>{s.label}</option>)}
+              </select>
+            </label>
+          </div>
+          <p className="sr-only" aria-live="polite">{visible.length} {visible.length === 1 ? "quote" : "quotes"} shown{filtered ? " with filters" : ""}</p>
+
+          {visible.length === 0 ? (
+            empty
+          ) : (
+            <>
+              {/* Table (≥768px). Scrolls sideways inside its own container if needed. */}
+              <div className="hidden overflow-x-auto md:block">
+                <table className="w-full min-w-[760px] text-sm">
+                  <thead className="border-b border-line text-left text-xs text-muted">
+                    <tr>
+                      <th scope="col" className="px-4 py-3 font-medium">Customer &amp; vehicle</th>
+                      <th scope="col" className="px-4 py-3 font-medium">Work</th>
+                      <th scope="col" className="px-4 py-3 text-right font-medium">Quote value</th>
+                      <th scope="col" className="px-4 py-3 font-medium">Status</th>
+                      <th scope="col" className="px-4 py-3 font-medium">Follow-up</th>
+                      <th scope="col" className="px-4 py-3 text-right font-medium">Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {visible.map((q) => {
+                      const st = statusOf(state, q);
+                      const fu = followUpFor(state, q);
+                      const on = selected === q.id;
+                      return (
+                        <tr
+                          key={q.id}
+                          data-row={q.id}
+                          onClick={(e) => !(e.target as HTMLElement).closest("button, a") && open(q.id)}
+                          className={`hover-x4 h-20 cursor-pointer border-b border-line transition-colors last:border-0 ${on ? "bg-selected shadow-[inset_3px_0_0_var(--color-accent)]" : "hover:bg-canvas"}`}
+                        >
+                          <td className="px-4 py-3 align-middle">
+                            <PlateLabel reg={q.registration} />
+                            <button data-row-open={q.id} aria-current={on ? "true" : undefined} onClick={() => open(q.id)} className={`mt-1 block max-w-[220px] truncate text-left font-medium text-text hover:underline ${focusRing}`} title={q.customerName}>
+                              {q.customerName}
+                            </button>
+                            <div className="max-w-[220px] truncate text-xs text-muted">{q.vehicle || "Vehicle not recorded"}</div>
+                          </td>
+                          <td className="px-4 py-3 align-middle">
+                            <span className="line-clamp-2 max-w-[320px] text-text">{q.job}</span>
+                          </td>
+                          <td className="px-4 py-3 text-right align-middle font-medium text-text tabular-nums">{formatPounds(q.amountPence)}</td>
+                          <td className="px-4 py-3 align-middle"><StatusLabel tone={st.tone}>{st.label}</StatusLabel></td>
+                          <td className={`px-4 py-3 align-middle whitespace-nowrap ${followTone(fu)}`}>{fu.label}</td>
+                          <td className="px-4 py-3 text-right align-middle">{action(q)}</td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Cards (<768px) */}
+              <ul className="divide-y divide-line md:hidden">
+                {visible.map((q) => {
+                  const st = statusOf(state, q);
+                  const fu = followUpFor(state, q);
+                  const on = selected === q.id;
+                  return (
+                    <li key={q.id} data-row={q.id} className={`hover-x4 p-4 ${on ? "bg-selected shadow-[inset_3px_0_0_var(--color-accent)]" : ""}`}>
+                      <div className="flex items-center justify-between gap-3">
+                        <PlateLabel reg={q.registration} />
+                        <span className="font-semibold text-text tabular-nums">{formatPounds(q.amountPence)}</span>
+                      </div>
+                      <button data-row-open={q.id} aria-current={on ? "true" : undefined} onClick={() => open(q.id)} className={`mt-2 block max-w-full truncate text-left font-medium text-text ${focusRing}`}>{q.customerName}</button>
+                      <p className="line-clamp-2 text-sm text-muted">{q.job}</p>
+                      <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
+                        <StatusLabel tone={st.tone}>{st.label}</StatusLabel>
+                        <span className={followTone(fu)}>{fu.label === "—" ? "No follow-up scheduled" : fu.label}</span>
+                      </div>
+                      <div className="mt-3">{action(q, true)}</div>
+                    </li>
+                  );
+                })}
+              </ul>
+            </>
+          )}
+        </div>
       </div>
 
-      <AddQuoteDrawer open={adding} onClose={closeDrawer} onSaved={onSaved} onShowExisting={openQuote} />
-      {selected && <QuoteDetails key={selected} quoteId={selected} onClose={close} />}
-    </>
+      {selected && (
+        <QuotePanel
+          key={selected}
+          quoteId={selected}
+          animateIn={enter}
+          onClose={close}
+          onSaved={(id) => setFlash({ id, n: (flash?.n ?? 0) + 1 })}
+          hasNext={!!next}
+          onNext={() => next && open(next.id)}
+        />
+      )}
+      <AddQuoteDrawer
+        open={adding}
+        onClose={() => {
+          setAdding(false);
+          addBtn.current?.focus({ preventScroll: true });
+        }}
+        onSaved={(q) => {
+          setAdding(false);
+          clearFilters();
+          setFlash({ id: q.id, n: (flash?.n ?? 0) + 1 });
+          requestAnimationFrame(() => [...document.querySelectorAll<HTMLElement>(`[data-row-open="${q.id}"]`)].find((el) => el.offsetParent)?.focus());
+        }}
+        onShowExisting={open}
+      />
+    </div>
   );
 }

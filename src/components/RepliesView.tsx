@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { confirmBooking, formatPounds, reconcileSend, resolveTask } from "@/domain/engine";
+import { messageLabel } from "@/domain/invoices";
 import { formatLondon } from "@/domain/time";
 import type { StaffTask, TaskKind } from "@/domain/types";
 import { REPLY_PRESETS } from "@/demo/seed";
@@ -67,7 +68,7 @@ function Conversation({ task }: { task: StaffTask }) {
             <div className="max-w-[85%]">
               <div className={`rounded-2xl px-3.5 py-2.5 text-[15px] leading-snug ${out ? "rounded-br-sm bg-graphite text-white" : "rounded-bl-sm border border-steel-line bg-white text-ink"}`}>{m.body}</div>
               <div className={`mt-1 text-[11px] text-slate-500 tabular-nums ${out ? "text-right" : ""}`}>
-                {formatLondon(m.sentAt ?? m.createdAt)}, {out ? `follow-up ${m.step}${m.approvedBy?.startsWith("Automatic") ? ", sent automatically" : ""}` : "customer"}
+                {formatLondon(m.sentAt ?? m.createdAt)}, {out ? `${messageLabel(m).toLowerCase()}${m.approvedBy?.startsWith("Automatic") ? ", sent automatically" : ""}` : "customer"}
               </div>
             </div>
           </li>
