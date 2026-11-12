@@ -138,18 +138,25 @@ describe("seeded demo (five cases at Wed 11 Nov 10:00)", () => {
 
   it("a booking request only becomes a booking when staff confirm it", () => {
     expect(q("q_ben")).toMatchObject({ booking: "requested", status: "open" });
-    expect(computeResults(s, DEMO_GARAGE_ID).confirmedBookings).toBe(1); // Emma only
+    expect(computeResults(s, DEMO_GARAGE_ID).confirmedBookings).toBe(4); // booked after a follow-up: Emma, Zara, Hannah, James
     confirmBooking(s, "q_ben", DEMO_STAFF);
     expect(q("q_ben")).toMatchObject({ booking: "confirmed", status: "booked", unresolvedReply: false });
-    expect(computeResults(s, DEMO_GARAGE_ID).confirmedBookings).toBe(2);
+    expect(computeResults(s, DEMO_GARAGE_ID).confirmedBookings).toBe(5);
   });
 
-  it("an unapproved draft expires when its send window closes", () => {
+  it("a draft not sent by closing time moves to the next opening instead of being dropped", () => {
     runFollowUpCheck(s);
-    s.now = "2026-11-11T17:30:00.000Z";
+    s.now = "2026-11-11T17:30:00.000Z"; // Wed closing time
     const r = runFollowUpCheck(s);
-    expect(r.find((x) => x.quoteId === "q_ava")?.outcome).toBe("draft_expired");
-    expect(draftFor("q_ava", 1)!.status).toBe("expired");
+    expect(r.find((x) => x.quoteId === "q_ava")?.outcome).toBe("moved");
+    expect(draftFor("q_ava", 1)).toMatchObject({ status: "awaiting_approval", windowStart: "2026-11-12T08:30:00.000Z" }); // Thu opening
+    expect(runFollowUpCheck(s).find((x) => x.quoteId === "q_ava")?.outcome).not.toBe("moved"); // moved once, not every check
+  });
+
+  it("a follow-up whose time passed with no check at all still goes, at the next opening, one step at a time", () => {
+    s.now = "2026-11-18T09:00:00.000Z"; // a week with no checks: both of Ava's steps are past
+    runFollowUpCheck(s);
+    expect(s.messages.filter((m) => m.quoteId === "q_ava" && m.direction === "outbound").map((m) => [m.step, m.status, m.windowStart])).toEqual([[1, "awaiting_approval", "2026-11-18T09:00:00.000Z"]]);
   });
 
   it("a stale status confirmation blocks the send until staff re-confirm", async () => {
@@ -158,8 +165,9 @@ describe("seeded demo (five cases at Wed 11 Nov 10:00)", () => {
     q("q_ava").statusConfirmedAt = "2026-11-10T08:00:00.000Z";
     const r = await dispatchApproved(s, new MockSmsProvider());
     expect(r[0].reasons).toContain("status_stale");
+    expect(draftFor("q_ava", 1)!.status).toBe("approved"); // held, not sent back for approval
     confirmStatus(s, "q_ava", "open", DEMO_STAFF);
-    const r2 = await approveAndSend("q_ava", 1);
+    const r2 = await dispatchApproved(s, new MockSmsProvider());
     expect(r2[0].outcome).toBe("sent");
   });
 
@@ -214,10 +222,10 @@ describe("results date filter", () => {
     const st = await buildSeedState();
     const all = computeResults(st, DEMO_GARAGE_ID);
     const thisWeek = computeResults(st, DEMO_GARAGE_ID, { from: "2026-11-09T00:00:00.000Z", to: "2026-11-12T00:00:00.000Z" });
-    expect(all.quotesFollowedUp).toBe(4); // Fri 6 Nov: Chloe, Daniel, Emma; Mon 9 Nov: Ben
-    expect(thisWeek.quotesFollowedUp).toBe(1); // only Ben's first follow-up went out this week
+    expect(all.quotesFollowedUp).toBe(13); // every seeded quote that got at least one follow-up since 15 Oct
+    expect(thisWeek.quotesFollowedUp).toBe(3); // first follow-ups this week: Ben and Grace (Mon), Mohammed (Tue)
     expect(thisWeek.optOuts).toBe(0); // Daniel's STOP was on Fri 6 Nov
     expect(all.optOuts).toBe(1);
-    expect(thisWeek.bookingRequests).toBe(1); // Ben, Mon 9 Nov
+    expect(thisWeek.bookingRequests).toBe(2); // Ben (Mon 9 Nov), Liam (Tue 10 Nov)
   });
 });

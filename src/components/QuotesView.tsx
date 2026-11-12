@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { gsap } from "gsap";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { formatPounds } from "@/domain/engine";
@@ -79,11 +80,15 @@ function AutomationStrip({ play }: { play: boolean }) {
 
 export function QuotesView() {
   const { state, garageId } = useDemo();
-  const [bucket, setBucket] = useState<Exclude<Bucket, "other"> | null>(null);
+  const params = useSearchParams();
+  const fromLink = params.get("bucket"); // Overview links straight to a filtered list
+  const [bucket, setBucket] = useState<Exclude<Bucket, "other"> | null>(fromLink === "needs_follow_up" || fromLink === "awaiting_reply" || fromLink === "accepted" ? fromLink : null);
   const [status, setStatus] = useState("all");
   const [sort, setSort] = useState<Sort>("priority");
   const [search, setSearch] = useState("");
-  const [selected, setSelected] = useState<string | null>(null);
+  // ?quote=<id> (from the Calendar) opens that quote's panel on arrival.
+  const linked = params.get("quote");
+  const [selected, setSelected] = useState<string | null>(() => (linked && state.quotes.some((q) => q.id === linked && q.garageId === garageId) ? linked : null));
   const [openIndex, setOpenIndex] = useState(0); // where the open quote sat, so "Next quote" works after it leaves the filter
   const [adding, setAdding] = useState(false);
   const [flash, setFlash] = useState<{ id: string; n: number } | null>(null);

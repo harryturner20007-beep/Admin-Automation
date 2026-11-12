@@ -3,9 +3,11 @@
 
 import type { SmsProvider } from "@/sms/provider";
 import { checkInvoiceGate, checkSendGate, GATE_REASON_TEXT, isQuoteExpired, type GateReason } from "./gate";
-import { draftInvoiceText, issueInvoice, messageLabel } from "./invoices";
-import { classifyReply, CATEGORY_LABEL, isClearOptOut } from "./replies";
-import { sendKey, stepWindow } from "./schedule";
+import { issueDraftInvoice, messageLabel } from "./invoices";
+import { acceptedLinesFromQuote, bookJob, completeJob, jobForQuote } from "./jobs";
+import { netOfVat } from "./money";
+import { classifyReply, CATEGORY_LABEL, isClearOptIn, isClearOptOut, normaliseReply } from "./replies";
+import { nextOpening, sendKey, stepWindow } from "./schedule";
 import { formatPounds, renderSms, templateValues, type Rendered } from "./templates";
 import { formatLondon, formatLondonTime } from "./time";
 import type { AppState, Garage, Message, Quote, ReplyCategory, StaffTask, TaskKind, Template } from "./types";
@@ -17,8 +19,8 @@ export function newId(state: AppState, prefix: string): string {
   return `${prefix}_${state.seq}`;
 }
 
-export function log(state: AppState, garageId: string, kind: string, text: string, quoteId?: string) {
-  state.events.push({ id: newId(state, "ev"), at: state.now, garageId, quoteId, kind, text });
+export function log(state: AppState, garageId: string, kind: string, text: string, quoteId?: string, refs: { jobId?: string; invoiceId?: string } = {}) {
+  state.events.push({ id: newId(state, "ev"), at: state.now, garageId, quoteId, ...refs, kind, text });
 }
 
 function garageOf(state: AppState, garageId: string): Garage {
@@ -84,7 +86,7 @@ function openTask(state: AppState, garageId: string, kind: TaskKind, quoteIds: s
 
 // ---------- follow-up check (scheduler/worker) ----------
 
-export type CheckOutcome = "drafted" | "blocked" | "missed_window" | "draft_expired" | "quote_expired" | "already_handled";
+export type CheckOutcome = "drafted" | "blocked" | "missed_window" | "draft_expired" | "moved" | "quote_expired" | "already_handled";
 
 export type CheckReportItem = {
   garageId: string;
@@ -136,37 +138,66 @@ export function runFollowUpCheck(state: AppState, onlyGarageIds?: string[]): Che
       report.push({ garageId: garage.id, quoteId: quote.id, customerName: quote.customerName, outcome: "quote_expired", reasons: ["quote_expired"] });
     }
     if (garage.mode === "off") continue; // Off schedules nothing
+    if (quote.status !== "open") {
+      // Never chased once closed. Cheap path (no template or gate): just say why a step due today won't go.
+      for (const step of [1, 2] as const) {
+        const win = followUpWindow(state, quote, garage, step);
+        if (win && now >= Date.parse(win.windowStart) && now < Date.parse(win.windowEnd) && !state.messages.some((m) => m.sendKey === sendKey(garage.id, quote.id, quote.revision, step)))
+          report.push({ garageId: garage.id, quoteId: quote.id, customerName: quote.customerName, step, outcome: "blocked", reasons: ["status_not_open"] });
+      }
+      continue;
+    }
 
+    let earlierWaiting = false; // never two follow-ups at once: step 2 waits until step 1 has gone
     for (const step of [1, 2] as const) {
-      const win = stepWindow(quote, garage, step);
+      const win = followUpWindow(state, quote, garage, step);
       if (!win) continue;
+      if (earlierWaiting) continue;
       const key = sendKey(garage.id, quote.id, quote.revision, step);
       const existing = state.messages.find((m) => m.sendKey === key);
+      const template = templateFor(state, garage.id, step);
+      const blockersAt = (w: { windowStart: string; windowEnd: string }) => {
+        const r = checkSendGate({ now: state.now, garage, quote, template, suppressions: state.suppressions, window: w });
+        if (template && renderTemplate(template, quote, garage).unresolved.length) r.push("template_unresolved"); // never draft text with a hole in it
+        return r.filter((x) => DRAFT_BLOCKERS.includes(x));
+      };
 
       if (existing) {
-        if (PENDING.includes(existing.status) && now >= Date.parse(win.windowEnd)) {
-          existing.status = "expired";
-          existing.statusReasons = ["window_expired"];
-          log(state, garage.id, "draft_expired", `Follow-up ${step} for ${quote.customerName} expired unsent (window closed ${formatLondon(win.windowEnd)})`, quote.id);
-          report.push({ garageId: garage.id, quoteId: quote.id, customerName: quote.customerName, step, outcome: "draft_expired", reasons: ["window_expired"], messageId: existing.id });
+        // A follow-up that missed its time (closed, paused, waiting on staff) goes at the next opening instead of
+        // being dropped, unless a later follow-up has already gone.
+        const laterGone = step === 1 && state.messages.some((m) => m.sendKey === sendKey(garage.id, quote.id, quote.revision, 2) && !["expired", "cancelled", "blocked"].includes(m.status ?? ""));
+        const missed = existing.status === "expired" && existing.statusReasons?.includes("window_expired") && !laterGone;
+        const next = nextOpening(state.now, garage);
+        if (next && (PENDING.includes(existing.status) || missed) && now >= Date.parse(existing.windowEnd ?? win.windowEnd)) {
+          if (missed && blockersAt(next).length) continue; // still held (reply, opt-out, reminder date…): look again next check
+          existing.windowStart = next.windowStart;
+          existing.windowEnd = next.windowEnd;
+          if (missed) {
+            const auto = garage.mode === "automatic";
+            Object.assign(existing, auto ? { status: "approved", approvedBy: AUTOMATIC_APPROVER, approvedAt: state.now } : { status: "awaiting_approval", approvedBy: undefined, approvedAt: undefined });
+            existing.statusReasons = undefined;
+          }
+          log(state, garage.id, "follow_up_moved", `Follow-up ${step} for ${quote.customerName} missed its time; it now goes at the next opening (${formatLondon(next.windowStart)})`, quote.id);
+          report.push({ garageId: garage.id, quoteId: quote.id, customerName: quote.customerName, step, outcome: "moved", reasons: [], messageId: existing.id });
         } else if (now >= Date.parse(win.windowStart) && now < Date.parse(win.windowEnd)) {
           report.push({ garageId: garage.id, quoteId: quote.id, customerName: quote.customerName, step, outcome: "already_handled", reasons: [], messageId: existing.id });
         }
+        if (PENDING.includes(existing.status) || existing.status === "sending") earlierWaiting = true;
         continue;
       }
 
       if (now < Date.parse(win.windowStart)) continue; // not due yet
 
-      const template = templateFor(state, garage.id, step);
+      // Missed its own time (garage closed, check didn't run, held): it goes at the next opening rather than never.
+      const live = now >= Date.parse(win.windowEnd) ? nextOpening(state.now, garage) : win;
+      if (!live) continue;
       const rendered = template ? renderTemplate(template, quote, garage) : null;
-      const reasons = checkSendGate({ now: state.now, garage, quote, template, suppressions: state.suppressions, window: win });
-      if (rendered?.unresolved.length) reasons.push("template_unresolved"); // never draft text with a hole in it
-      const blockers = reasons.filter((r) => DRAFT_BLOCKERS.includes(r));
-      const missed = reasons.includes("window_expired");
+      const reasons = checkSendGate({ now: state.now, garage, quote, template, suppressions: state.suppressions, window: live });
+      const blockers = blockersAt(live);
 
       if (blockers.length) {
-        // Only report blocks for today's window; older steps are simply history.
-        if (!missed) report.push({ garageId: garage.id, quoteId: quote.id, customerName: quote.customerName, step, outcome: "blocked", reasons: blockers });
+        report.push({ garageId: garage.id, quoteId: quote.id, customerName: quote.customerName, step, outcome: "blocked", reasons: blockers });
+        earlierWaiting = true; // step 2 doesn't jump the queue while step 1 is held
         continue;
       }
 
@@ -183,17 +214,10 @@ export function runFollowUpCheck(state: AppState, onlyGarageIds?: string[]): Che
         revision: quote.revision,
         sendKey: key,
         templateId: template?.id,
-        windowStart: win.windowStart,
-        windowEnd: win.windowEnd,
+        windowStart: live.windowStart,
+        windowEnd: live.windowEnd,
       };
-
-      if (missed) {
-        if (insertOutboundOnce(state, { ...base, status: "expired", statusReasons: ["window_expired"] })) {
-          log(state, garage.id, "missed_window", `Follow-up ${step} for ${quote.customerName} missed its window (${formatLondon(win.windowStart)}–${formatLondonTime(win.windowEnd)}) and was expired, not sent late`, quote.id);
-          report.push({ garageId: garage.id, quoteId: quote.id, customerName: quote.customerName, step, outcome: "missed_window", reasons: ["window_expired"], messageId: base.id });
-        }
-        continue;
-      }
+      earlierWaiting = true;
 
       // Automatic mode: the garage's saved setting stands in for per-message approval.
       // The full gate still runs again immediately before the provider call.
@@ -232,6 +256,8 @@ export type SendReportItem = {
   error?: string;
 };
 
+const MANUAL_CHECKS: GateReason[] = ["garage_paused", "status_not_open", "no_eligibility_evidence", "number_suppressed", "not_staff_approved", "before_window", "window_expired", "invoice_settled", "invoice_not_issued", "template_unresolved"];
+
 const TERMINAL_BLOCKS: Partial<Record<GateReason, Message["status"]>> = {
   window_expired: "expired",
   status_not_open: "cancelled",
@@ -239,6 +265,7 @@ const TERMINAL_BLOCKS: Partial<Record<GateReason, Message["status"]>> = {
   quote_expired: "cancelled",
   revision_changed: "cancelled",
   invoice_settled: "cancelled",
+  invoice_not_issued: "cancelled",
 };
 
 /**
@@ -264,12 +291,17 @@ export async function dispatchApproved(state: AppState, provider: SmsProvider): 
     const garage = garageOf(state, m.garageId);
     const window = { windowStart: m.windowStart!, windowEnd: m.windowEnd! };
     const invoice = m.invoiceId ? state.invoices.find((i) => i.id === m.invoiceId) : undefined;
-    const reasons = invoice
+    const all = invoice
       ? checkInvoiceGate({ now: state.now, garage, quote, invoice, step: m.invoiceStep ?? 0, suppressions: state.suppressions, window, message: m })
       : checkSendGate({ now: state.now, garage, quote, template: state.templates.find((t) => t.id === m.templateId), suppressions: state.suppressions, window, message: m });
+    // A text staff typed and sent on purpose skips the automation-only rules (template, schedule, mode, pauses
+    // for automatic texts, a waiting reply) but never the safety ones (opt-out, consent, status, quiet hours).
+    const reasons = m.manual ? all.filter((r) => MANUAL_CHECKS.includes(r)) : all;
 
-    // Invoice texts outside opening hours stay queued for the next opening instead of expiring.
-    if (invoice && reasons.length && reasons.every((r) => r === "before_window" || r === "window_expired")) {
+    // Outside opening hours, or waiting on something staff can fix (a stale status, a reply on an invoice
+    // customer): the text stays queued and goes at the next opportunity, rather than expiring or losing approval.
+    const hold: GateReason[] = invoice ? ["before_window", "window_expired", "unresolved_reply"] : ["before_window", "window_expired", "status_stale"];
+    if (reasons.length && reasons.every((r) => hold.includes(r))) {
       m.status = "approved";
       m.claimedAt = undefined;
       report.push({ messageId: m.id, quoteId: quote.id, outcome: "blocked", reasons });
@@ -289,8 +321,15 @@ export async function dispatchApproved(state: AppState, provider: SmsProvider): 
       continue;
     }
 
-    const result = await provider.send({ from: m.fromPhone, to: m.toPhone, body: m.body, idempotencyKey: m.sendKey! });
+    m.fromPhone = garage.smsNumber; // always the garage's current sending number, not the one when drafted
+    const result = await provider.send({ from: m.fromPhone, to: m.toPhone, body: m.body, idempotencyKey: m.sendKey!, messageId: m.id });
 
+    if (result.kind === "in_flight") {
+      m.status = "approved"; // someone else holds the claim; their result is saved with the message
+      m.claimedAt = undefined;
+      report.push({ messageId: m.id, quoteId: quote.id, outcome: "skipped_already_claimed" });
+      continue;
+    }
     if (result.kind === "accepted") {
       m.status = "sent";
       m.sentAt = state.now;
@@ -301,13 +340,14 @@ export async function dispatchApproved(state: AppState, provider: SmsProvider): 
     } else if (result.kind === "rejected") {
       m.status = "failed";
       m.statusReasons = [];
-      m.deliveryStatus = result.error;
+      m.deliveryStatus = "failed";
+      m.deliveryError = result.error;
       log(state, garage.id, "send_failed", `Provider rejected ${messageLabel(m).toLowerCase()} for ${quote.customerName}: ${result.error}`, quote.id);
       report.push({ messageId: m.id, quoteId: quote.id, outcome: "failed", error: result.error });
     } else {
       // Ambiguous: the provider may have accepted it. Never retry blindly.
       m.status = "needs_reconciliation";
-      m.deliveryStatus = result.error;
+      m.deliveryError = result.error;
       openTask(state, garage.id, "reconcile_send", [quote.id], `Check the provider log: ${messageLabel(m).toLowerCase()} to ${quote.customerName} may or may not have been sent. Do not resend until reconciled.`, m.id);
       log(state, garage.id, "needs_reconciliation", `Send to ${quote.customerName} timed out; marked for reconciliation, no retry`, quote.id);
       report.push({ messageId: m.id, quoteId: quote.id, outcome: "needs_reconciliation", error: result.error });
@@ -339,15 +379,36 @@ export function reconcileSend(state: AppState, messageId: string, outcome: "was_
 
 // ---------- provider callbacks ----------
 
-/** Delivery status callback. Deduplicated by provider event id. */
-export function applyDeliveryStatus(state: AppState, e: { eventId: string; providerMessageId: string; status: string }): "applied" | "duplicate" | "unknown_message" {
-  if (state.processedProviderEvents.includes(e.eventId)) return "duplicate";
-  state.processedProviderEvents.push(e.eventId);
+/** Provider statuses in the order they can happen; the last three are final. */
+const DELIVERY_RANK: Record<string, number> = { accepted: 1, scheduled: 1, queued: 1, sending: 2, sent: 3, delivered: 4, undelivered: 4, failed: 4, canceled: 4 };
+
+/** Remember a provider event id; the list keeps the newest 5,000 (providers retry within hours, not weeks). */
+function seen(state: AppState, eventId: string): boolean {
+  if (state.processedProviderEvents.includes(eventId)) return true;
+  state.processedProviderEvents.push(eventId);
+  if (state.processedProviderEvents.length > 5000) state.processedProviderEvents.splice(0, state.processedProviderEvents.length - 5000);
+  return false;
+}
+
+/**
+ * Delivery status callback. Deduplicated by provider event id, and only ever moves forward: a late
+ * "sent" never overwrites "delivered", and a final result (delivered / undelivered / failed) is never replaced.
+ */
+export function applyDeliveryStatus(state: AppState, e: { eventId: string; providerMessageId: string; status: string; error?: string }): "applied" | "duplicate" | "unknown_message" | "stale" {
+  if (seen(state, e.eventId)) return "duplicate";
   const m = state.messages.find((x) => x.providerMessageId === e.providerMessageId);
   if (!m) return "unknown_message";
+  const rank = DELIVERY_RANK[e.status] ?? 0;
+  const current = DELIVERY_RANK[m.deliveryStatus ?? ""] ?? 0;
+  if (!rank || current === 4 || rank < current) return "stale";
   m.deliveryStatus = e.status;
   if (e.status === "delivered") m.status = "delivered";
-  if (e.status === "undelivered" || e.status === "failed") m.status = "failed";
+  if (rank === 4 && e.status !== "delivered") {
+    m.status = "failed";
+    m.deliveryError = e.error ?? "The network couldn't deliver it";
+    const q = m.quoteId ? state.quotes.find((x) => x.id === m.quoteId) : undefined;
+    log(state, m.garageId, "send_failed", `${messageLabel(m)} to ${q?.customerName ?? m.toPhone} was not delivered: ${m.deliveryError}`, m.quoteId ?? undefined);
+  }
   return "applied";
 }
 
@@ -377,10 +438,9 @@ const CATEGORY_TASK: Record<ReplyCategory, TaskKind> = {
  *  6. otherwise label it and hand it to staff. Nothing is ever auto-answered.
  */
 export function receiveInbound(state: AppState, e: { eventId: string; from: string; to: string; body: string }): InboundResult {
-  if (state.processedProviderEvents.includes(e.eventId)) return { outcome: "duplicate" };
   const garage = state.garages.find((g) => g.smsNumber === e.to);
   if (!garage) return { outcome: "unknown_garage" };
-  state.processedProviderEvents.push(e.eventId);
+  if (seen(state, e.eventId)) return { outcome: "duplicate" };
 
   const msg: Message = {
     id: newId(state, "msg"),
@@ -411,9 +471,24 @@ export function receiveInbound(state: AppState, e: { eventId: string; from: stri
     return { outcome: "opt_out", messageId: msg.id, category: "opt_out", quoteIds: msg.matchedQuoteIds };
   }
 
+  if (isClearOptIn(e.body)) {
+    const sup = state.suppressions.find((s) => s.garageId === garage.id && s.phone === e.from && !s.liftedAt);
+    msg.category = "general";
+    msg.matchedQuoteIds = phoneQuotes.map((q) => q.id);
+    if (sup) {
+      sup.liftedAt = state.now;
+      const who = phoneQuotes[0]?.customerName ?? e.from;
+      openTask(state, garage.id, "general_reply", msg.matchedQuoteIds, `${who} texted ${normaliseReply(e.body)}: they can receive texts again. Automatic follow-ups stay as they were.`, msg.id);
+      log(state, garage.id, "opt_in", `${who} opted back in to texts`, phoneQuotes.length === 1 ? phoneQuotes[0].id : undefined);
+      return { outcome: "matched", messageId: msg.id, category: "general", quoteIds: msg.matchedQuoteIds };
+    }
+  }
+
   const category = classifyReply(e.body);
   msg.category = category;
-  const candidates = phoneQuotes.filter((q) => q.status === "open");
+  // Anything still being chased for this customer: open quotes, and completed jobs with an unpaid invoice.
+  const owing = (q: Quote) => state.invoices.some((i) => i.quoteId === q.id && i.status === "unpaid");
+  const candidates = phoneQuotes.filter((q) => q.status === "open" || owing(q));
   msg.matchedQuoteIds = candidates.map((q) => q.id);
 
   if (candidates.length === 0) {
@@ -424,18 +499,18 @@ export function receiveInbound(state: AppState, e: { eventId: string; from: stri
 
   for (const q of candidates) {
     q.unresolvedReply = true;
-    cancelPendingFor(state, q.id, "unresolved_reply");
+    if (q.status === "open") cancelPendingFor(state, q.id, "unresolved_reply"); // invoice texts are held by the gate instead, so they resume
   }
 
   if (candidates.length > 1) {
-    openTask(state, garage.id, "ambiguous_match", msg.matchedQuoteIds, `Reply matches ${candidates.length} open quotes (${candidates.map((q) => q.sourceQuoteId).join(", ")}). All paused. Check which job the customer means: "${e.body}"`, msg.id);
+    openTask(state, garage.id, "ambiguous_match", msg.matchedQuoteIds, `Reply could be about ${candidates.length} quotes or invoices (${candidates.map((q) => q.sourceQuoteId).join(", ")}). Chasing is paused for all of them. Check which job the customer means: "${e.body}"`, msg.id);
     log(state, garage.id, "ambiguous_match", `Reply from ${e.from} matched ${candidates.length} open quotes; all paused and sent to staff`);
     return { outcome: "ambiguous", messageId: msg.id, category, quoteIds: msg.matchedQuoteIds };
   }
 
   const quote = candidates[0];
   msg.quoteId = quote.id;
-  if (category === "booking_request") {
+  if (category === "booking_request" && quote.status === "open") {
     quote.booking = "requested";
     quote.bookingRequestedAt = state.now;
   }
@@ -494,15 +569,20 @@ export function confirmStatus(state: AppState, quoteId: string, status: Quote["s
   log(state, q.garageId, "status", was === status ? `${staffName} confirmed ${q.customerName}'s quote is still ${status}` : `${staffName} changed ${q.customerName}'s quote from ${was} to ${status}`, q.id);
 }
 
+/**
+ * One-step completion for a booked quote recorded with a single final total (quotes booked before jobs
+ * existed, and the demo history): makes its job if needed, completes it and issues the invoice at once.
+ */
 export function markCompleted(state: AppState, quoteId: string, jobValuePence: number, staffName: string) {
   const q = quoteOf(state, quoteId);
   if (q.status !== "booked") throw new Error("Only booked quotes can be completed");
-  q.status = "completed";
-  q.completedAt = state.now;
-  q.jobValuePence = jobValuePence;
-  q.statusConfirmedAt = state.now;
-  log(state, q.garageId, "completed", `${staffName} marked ${q.customerName}'s job complete (${formatPounds(jobValuePence)})`, q.id);
-  draftInvoiceText(state, issueInvoice(state, q.id)); // invoice raised now; its text is drafted (or queued) straight away
+  const job = jobForQuote(state, q.id) ?? bookJob(state, q.id, { startAt: q.bookedFor ? `${q.bookedFor}T09:00:00.000Z` : state.now, notes: "", customerConfirmation: "Booked before jobs were recorded" }, staffName);
+  const charges = acceptedLinesFromQuote(state, q);
+  const vat = charges.vatRatePercent;
+  charges.lines[0].unitPence = vat ? netOfVat(jobValuePence, vat) : jobValuePence;
+  const note = jobValuePence > q.amountPence ? "Final total recorded as a single amount" : "";
+  const inv = completeJob(state, job.id, { ...charges, extraWorkReason: note, extraWorkAuthorisation: note, completionNotes: "" }, staffName);
+  issueDraftInvoice(state, inv.id, staffName); // the invoice is issued and its text drafted (or queued) straight away
 }
 
 export function setGaragePaused(state: AppState, garageId: string, paused: boolean, staffName: string) {
@@ -515,6 +595,20 @@ export function setQuotePaused(state: AppState, quoteId: string, paused: boolean
   const q = quoteOf(state, quoteId);
   q.paused = paused;
   log(state, q.garageId, "quote_pause", `${staffName} ${paused ? "paused" : "resumed"} follow-ups for ${q.customerName}`, q.id);
+}
+
+/**
+ * When a follow-up step may go. A step sent by hand moves the next step on: it waits the same number of
+ * business days after the manual text as the schedule puts between the two steps.
+ */
+export function followUpWindow(state: AppState, quote: Quote, garage: Garage, step: 1 | 2) {
+  const win = stepWindow(quote, garage, step);
+  if (!win || step === 1) return win;
+  const prev = state.messages.find((m) => m.sendKey === sendKey(garage.id, quote.id, quote.revision, 1));
+  if (!prev?.manual || !prev.sentAt) return win;
+  const gap = Math.max(1, garage.followUps[1].businessDays - garage.followUps[0].businessDays);
+  const after = stepWindow({ quoteSentAt: prev.sentAt }, { ...garage, followUps: [{ ...garage.followUps[0], businessDays: gap }, garage.followUps[1]] }, 1);
+  return after && Date.parse(after.windowStart) > Date.parse(win.windowStart) ? { ...after, step } : win;
 }
 
 // ---------- read models for the UI ----------
@@ -530,7 +624,7 @@ export function quoteFollowUpView(state: AppState, quote: Quote): QuoteFollowUpV
   const garage = garageOf(state, quote.garageId);
   const now = Date.parse(state.now);
   for (const step of [1, 2] as const) {
-    const win = stepWindow(quote, garage, step);
+    const win = followUpWindow(state, quote, garage, step);
     if (!win) continue;
     const existing = state.messages.find((m) => m.sendKey === sendKey(garage.id, quote.id, quote.revision, step));
     if (existing && !PENDING.includes(existing.status)) continue;

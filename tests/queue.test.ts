@@ -9,6 +9,7 @@ import { buildSeedState, DEMO_GARAGE_ID, DEMO_STAFF } from "@/demo/seed";
 import { MockSmsProvider } from "@/sms/provider";
 
 let s: AppState;
+const ORIGINAL = ["q_ava", "q_ben", "q_chloe", "q_dan", "q_emma", "q_fay"]; // the walkthrough cases; the rest is background
 const q = (id: string) => s.quotes.find((x) => x.id === id)!;
 
 describe("chase queue", () => {
@@ -17,7 +18,7 @@ describe("chase queue", () => {
   });
 
   it("buckets the seeded quotes from the real records", () => {
-    const b = Object.fromEntries(s.quotes.map((x) => [x.id, bucketOf(s, x)]));
+    const b = Object.fromEntries(s.quotes.filter((x) => ORIGINAL.includes(x.id)).map((x) => [x.id, bucketOf(s, x)]));
     expect(b).toEqual({
       q_ava: "needs_follow_up", // follow-up 1 due today
       q_ben: "needs_follow_up", // booking request waiting
@@ -48,7 +49,7 @@ describe("chase queue", () => {
     recordOutcome(s, "q_ava", "no_reply", DEMO_STAFF, reminderDate(s, "3days"));
     const provider = new MockSmsProvider();
     await advanceDemoClock(s, 3 * 60 * 60 * 1000, provider); // past 11:30
-    expect(provider.sent).toHaveLength(0);
+    expect(provider.sent.filter((m) => m.to === q("q_ava").phone)).toHaveLength(0);
   });
 
   it("Accepted books the quote and resolves the waiting reply; Declined closes it", () => {
@@ -81,8 +82,9 @@ describe("chase queue", () => {
     const order = s.quotes.filter((x) => x.status === "open").sort(priorityCompare(s)).map((x) => x.id);
     expect(order[0]).toBe("q_ava");
     expect(followUpFor(s, q("q_ava")).label).toBe("2 days overdue");
-    expect(order.slice(1, 3).sort()).toEqual(["q_ben", "q_chloe"]); // due today / reply waiting
-    expect(order.at(-1)).toBe("q_dan"); // nothing to chase
+    expect(order[1]).toBe("q_olivia"); // seeded reminder, 1 day overdue
+    expect(order.slice(2, 7).sort()).toEqual(["q_ben", "q_chloe", "q_liam", "q_mo", "q_tom"]); // due today / reply waiting
+    expect(order.indexOf("q_dan")).toBeGreaterThan(6); // nothing to chase
   });
 
   it("composes the friendly reminder from the quote's details", () => {

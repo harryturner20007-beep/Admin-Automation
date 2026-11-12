@@ -19,6 +19,9 @@ export function normaliseReply(body: string): string {
   return body.trim().replace(/[.!\s]+$/g, "").replace(/\s+/g, " ").toUpperCase();
 }
 
+/** START / UNSTOP: the standard keywords to opt back in after STOP. */
+export const isClearOptIn = (body: string) => ["START", "UNSTOP"].includes(normaliseReply(body));
+
 export function isClearOptOut(body: string): boolean {
   const n = normaliseReply(body);
   if (OPT_OUT_KEYWORDS.has(n)) return true;

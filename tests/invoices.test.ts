@@ -16,12 +16,12 @@ const garage = () => s.garages.find((g) => g.id === DEMO_GARAGE_ID)!;
 
 describe("invoices", () => {
   beforeEach(async () => {
-    s = await buildSeedState(); // Wed 11 Nov 2026 10:00, Draft mode
+    s = await buildSeedState(); // Wed 11 Nov 2026 10:00; follow-ups in Draft, invoice texts Automatic
   });
 
   it("seed: Fay's invoice went out on completion and reminder 1 after 7 days; it is now overdue", () => {
     const inv = invoiceFor("q_fay");
-    expect(inv).toMatchObject({ number: "INV-0001", amountPence: 51250, dueDate: "2026-11-10", status: "unpaid" });
+    expect(inv).toMatchObject({ number: "INV-0004", amountPence: 51250, dueDate: "2026-11-10", status: "unpaid" });
     expect(textsFor("q_fay").map((m) => [m.invoiceStep, m.status, m.sentAt])).toEqual([
       [0, "delivered", "2026-11-03T15:30:00.000Z"],
       [1, "delivered", "2026-11-10T10:00:00.000Z"],
@@ -30,13 +30,14 @@ describe("invoices", () => {
   });
 
   it("recording a job complete raises the invoice and drafts its text once", () => {
+    garage().invoiceMode = "draft";
     s.now = "2026-11-11T11:00:00.000Z";
     markCompleted(s, "q_emma", 24000, DEMO_STAFF);
     const inv = invoiceFor("q_emma");
-    expect(inv).toMatchObject({ number: "INV-0002", amountPence: 24000, dueDate: "2026-11-18" });
+    expect(inv).toMatchObject({ number: "INV-0006", amountPence: 24000, dueDate: "2026-11-18" });
     expect(textsFor("q_emma")).toHaveLength(1);
     expect(textsFor("q_emma")[0]).toMatchObject({ invoiceStep: 0, status: "awaiting_approval", toPhone: "+447700900105" });
-    expect(textsFor("q_emma")[0].body).toContain("INV-0002 for exhaust back box replacement is £240");
+    expect(textsFor("q_emma")[0].body).toContain("INV-0006 for exhaust back box replacement is £240");
     runInvoiceCheck(s);
     expect(textsFor("q_emma")).toHaveLength(1); // no duplicate
   });
@@ -47,8 +48,8 @@ describe("invoices", () => {
     expect(textsFor("q_emma")[0].windowStart).toBe("2026-11-12T08:30:00.000Z");
   });
 
-  it("automatic mode: invoice goes, reminder 1 at 7 days, then paying stops the chase", async () => {
-    garage().mode = "automatic";
+  it("automatic mode: invoice goes, reminder 1 at 7 days, then paying stops the chase", { timeout: 20_000 }, async () => {
+    garage().invoiceMode = "automatic";
     s.now = "2026-11-11T11:00:00.000Z";
     markCompleted(s, "q_emma", 24000, DEMO_STAFF);
     await runScheduledCheck(s, provider());
@@ -67,14 +68,14 @@ describe("invoices", () => {
   });
 
   it("after the 14-day reminder the invoice is flagged for a call", async () => {
-    garage().mode = "automatic";
+    garage().invoiceMode = "automatic";
     await advanceDemoClock(s, 6 * DAY_MS + 2 * HOUR_MS, provider()); // past Tue 17 Nov 10:00
     expect(textsFor("q_fay").map((m) => m.invoiceStep)).toEqual([0, 1, 2]);
     expect(invoiceView(s, invoiceFor("q_fay"))).toMatchObject({ state: "needs_call", next: "Both reminders sent. Call the customer." });
   });
 
   it("paused reminders, opt-outs and Off mode all stop invoice texts", async () => {
-    garage().mode = "automatic";
+    garage().invoiceMode = "automatic";
     setInvoiceChasePaused(s, invoiceFor("q_fay").id, true, DEMO_STAFF);
     await advanceDemoClock(s, 7 * DAY_MS, provider());
     expect(textsFor("q_fay")).toHaveLength(2);

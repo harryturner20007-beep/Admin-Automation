@@ -80,6 +80,9 @@ export function invoiceWindow(from: string, garage: Pick<Garage, "hours" | "foll
   return openWindowFrom(garage, addCalendarDays(day, 1), { hh: 0, mm: 0 }); // closed now: next opening
 }
 
+/** The next time the garage is open at or after `from` (now, if it's open now). */
+export const nextOpening = (from: string, garage: Pick<Garage, "hours" | "followUps">) => invoiceWindow(from, garage, 0);
+
 export const invoiceSendKey = (garageId: string, invoiceId: string, step: InvoiceStep) => `${garageId}:${invoiceId}:i${step}`;
 
 export function sendKey(garageId: string, quoteId: string, revision: number, step: 1 | 2): string {

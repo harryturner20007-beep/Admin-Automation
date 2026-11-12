@@ -3,7 +3,8 @@
 import Link from "next/link";
 import { gsap } from "gsap";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
-import { confirmStatus, formatPounds, markCompleted, reconcileSend, setQuotePaused } from "@/domain/engine";
+import { confirmStatus, formatPounds, reconcileSend, setQuotePaused } from "@/domain/engine";
+import { JOB_STATUS_LABEL, jobForQuote, setCustomerBilling } from "@/domain/jobs";
 import { GATE_REASON_TEXT } from "@/domain/gate";
 import {
   canChase,
@@ -24,6 +25,10 @@ import { formatLondon, formatLondonDate, ukDate } from "@/domain/time";
 import { REPLY_PRESETS } from "@/demo/seed";
 import { useAction, useDemo } from "@/demo/store";
 import { ActionButton } from "./ActionButton";
+import { BookJobForm } from "./BookJobForm";
+import { SmsComposer } from "./SmsComposer";
+import { deliveryLabel } from "@/domain/sms";
+import { Progress } from "./workflow";
 import { lineReveal, motionAllowed, RISE, Rise, Words } from "./motion";
 import { quoteRow } from "./quoteRows";
 import { queueReply } from "./RepliesView";
@@ -102,7 +107,7 @@ function Choice({ options, value, onChange, label, autoFocus }: { options: { id:
 type Saved = { text: string };
 
 export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNext }: { quoteId: string; animateIn: boolean; onClose: () => void; onSaved: (id: string) => void; onNext: () => void; hasNext: boolean }) {
-  const { state, staff, act, actUndoable, undo, approveAndSend, simulateReply } = useDemo();
+  const { state, staff, act, actUndoable, undo, approveAndSend, simulateReply, hosted } = useDemo();
   const desk = useMediaQuery("(min-width: 1200px)");
   const panel = useRef<HTMLElement & HTMLDialogElement>(null);
   const closeBtn = useRef<HTMLButtonElement>(null);
@@ -118,7 +123,9 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
   const [customDate, setCustomDate] = useState("");
   const [saved, setSaved] = useState<Saved | null>(null);
   const [wording, setWording] = useState(q?.customerJobDescription ?? "");
-  const [jobValue, setJobValue] = useState(q ? String(q.amountPence / 100) : "");
+  const [booking, setBooking] = useState(false);
+  const [email, setEmail] = useState(q?.email ?? "");
+  const [address, setAddress] = useState(q?.billingAddress ?? "");
   const [replyText, setReplyText] = useState("");
   const save = useAction();
   const undoAction = useAction();
@@ -160,6 +167,7 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
     onClose();
   };
   const row = quoteRow(state, q);
+  const job = jobForQuote(state, q.id);
   const status = statusOf(state, q);
   const fu = followUpFor(state, q);
   const chase = canChase(state, q);
@@ -170,7 +178,9 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
   const history = [
     { at: q.quoteSentAt, text: `Quote ${q.sourceQuoteId} sent for ${formatPounds(q.amountPence)}`, body: undefined as string | undefined, who: "garage" },
     ...state.events.filter((e) => e.quoteId === q.id && e.kind !== "reply" && e.kind !== "sent").map((e) => ({ at: e.at, text: e.text, body: undefined, who: "staff" })),
-    ...state.messages.filter((m) => m.direction === "outbound" && m.quoteId === q.id && m.sentAt).map((m) => ({ at: m.sentAt!, text: `${messageLabel(m)} ${m.status === "delivered" ? "delivered" : "sent"}`, body: m.body, who: "garage" })),
+    ...state.messages
+      .filter((m) => m.direction === "outbound" && m.quoteId === q.id && ["sending", "sent", "delivered", "failed", "needs_reconciliation"].includes(m.status ?? ""))
+      .map((m) => ({ at: m.sentAt ?? m.claimedAt ?? m.createdAt, text: `${messageLabel(m)}${m.manual ? " (sent by hand)" : ""}: ${deliveryLabel(m).label}${m.deliveryError ? `. ${m.deliveryError}` : ""}`, body: m.body, who: "garage" })),
     ...state.messages
       .filter((m) => m.direction === "inbound" && (m.quoteId === q.id || m.matchedQuoteIds?.includes(q.id)))
       .map((m) => ({ at: m.createdAt, text: `Customer replied: ${CATEGORY_LABEL[m.category ?? "general"].toLowerCase()}`, body: m.body, who: "customer" })),
@@ -212,6 +222,9 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
             <StatusLabel tone={status.tone}>{status.label}</StatusLabel>
             <div className="mt-1 text-xs text-muted">Follow-up: {fu.label}</div>
           </div>
+          <div className="w-full">
+            <Progress state={state} quoteId={q.id} here="quote" />
+          </div>
         </div>
 
         {/* 3. Work and line items */}
@@ -233,9 +246,17 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
           <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-sm">
             <dt className="text-muted">Mobile</dt>
             <dd className="text-text tabular-nums">{ukPhone(q.phone)}</dd>
-            <dt className="text-muted">Email</dt>
-            <dd className="text-muted">Not recorded</dd>
           </dl>
+          <details className="mt-3 text-sm">
+            <summary className="min-h-11 cursor-pointer py-2 font-medium text-accent">Billing details{q.billingAddress ? "" : " (needed for the invoice)"}</summary>
+            <div className="space-y-2">
+              <label htmlFor="cust-email" className="block text-xs font-medium text-muted">Email</label>
+              <input id="cust-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} className={inputClass()} />
+              <label htmlFor="cust-address" className="block text-xs font-medium text-muted">Billing address</label>
+              <textarea id="cust-address" rows={3} value={address} onChange={(e) => setAddress(e.target.value)} className={inputClass()} />
+              <ActionButton label="Save billing details" onRun={() => act((s) => setCustomerBilling(s, q.id, { email, billingAddress: address }, staff))} success="Saved. New invoices use these details." />
+            </div>
+          </details>
           {row.suppressed && <p className="mt-2 rounded-lg bg-danger-bg px-3 py-2 text-xs text-danger">Opted out of texts. Don&apos;t text this number.</p>}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <a
@@ -269,8 +290,11 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
             />
             <label htmlFor="compose" className="sr-only">Message</label>
             <textarea ref={composer} id="compose" rows={4} value={message} onChange={(e) => setMessage(e.target.value)} placeholder="Choose a message above, or write your own." className={`${inputClass()} mt-3 leading-relaxed`} />
-            <p className="mt-1.5 text-xs text-muted">This app doesn&apos;t send this message. Open it in your phone&apos;s Messages app and press send there, or copy it.</p>
-            <div className="mt-3 flex flex-wrap gap-2">
+            <div className="mt-3">
+              <SmsComposer target={{ quoteId: q.id }} to={q.phone} value={message} label="Send follow-up" onSent={() => onSaved(q.id)} />
+            </div>
+            <p className="mt-4 text-xs text-muted">Or send it from your own phone (then record the outcome below):</p>
+            <div className="mt-2 flex flex-wrap gap-2">
               <a
                 href={message.trim() ? smsHref : undefined}
                 aria-disabled={!message.trim()}
@@ -278,7 +302,7 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
                   if (!message.trim()) return e.preventDefault();
                   contact.run(() => act((s) => recordContactAttempt(s, q.id, "messages_app", staff)), "Opened in Messages. Record the outcome below once you know it.");
                 }}
-                className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg bg-accent px-4 text-sm font-medium text-white hover:bg-accent-hover aria-disabled:cursor-not-allowed aria-disabled:opacity-50 ${focusRing}`}
+                className={`inline-flex min-h-11 items-center gap-1.5 rounded-lg px-4 text-sm font-medium text-text ring-1 ring-line ring-inset hover:bg-canvas aria-disabled:cursor-not-allowed aria-disabled:opacity-50 ${focusRing}`}
               >
                 <Icon name="message" /> Open Messages app
               </a>
@@ -307,13 +331,11 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
                 <div className="mt-2">
                   <ActionButton
                     variant="primary"
-                    label="Approve & send (mock SMS)"
+                    label="Approve & send"
                     onRun={() => approveAndSend(row.draft!.id)}
                     success={(r) => {
-                      const s = (r as { outcome: string; reasons?: string[] }[])[0];
-                      if (s?.outcome === "sent") return "Sent through the mock SMS provider";
-                      if (s?.outcome === "needs_reconciliation") return "Provider timed out; marked for checking";
-                      return `Held back: ${(s?.reasons ?? []).map((x) => GATE_REASON_TEXT[x as keyof typeof GATE_REASON_TEXT]?.toLowerCase()).join(", ")}`;
+                      const o = r as { status: string; detail?: string };
+                      return o.status === "Pending" ? `Approved. ${o.detail ?? "It sends inside its sending window."}` : `${o.status}${o.detail ? `: ${o.detail}` : ""}`;
                     }}
                   />
                 </div>
@@ -352,6 +374,7 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
               </li>
             ))}
           </ol>
+          {!hosted && (
           <details className="mt-4">
             <summary className={`cursor-pointer text-xs text-muted ${focusRing}`}>Demo: simulate a customer reply</summary>
             <div className="mt-2 flex flex-wrap gap-2">
@@ -365,12 +388,19 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
               <ActionButton label="Receive reply" onRun={() => { if (!replyText.trim()) throw new Error("type or pick a reply"); simulateReply(q.phone, replyText.trim()); setReplyText(""); }} success="Reply received" />
             </div>
           </details>
+          )}
         </Section>
 
         {/* 7. Outcome and next reminder */}
         <Section title={chase ? "Outcome" : "Outcome recorded"}>
-          {chase ? (
+          {chase && (booking || outcome === "accepted") ? (
+            <BookJobForm q={q} customerAccepted={outcome === "accepted"} onCancel={() => { setBooking(false); setOutcome(null); }} />
+          ) : chase ? (
             <div className="space-y-4">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-line p-3 text-sm">
+                <span className="text-text">Customer said yes?</span>
+                <Button variant="primary" size="sm" onClick={() => setBooking(true)}>Book job</Button>
+              </div>
               <Choice label="Outcome" options={(Object.keys(OUTCOME_LABEL) as Outcome[]).map((id) => ({ id, label: OUTCOME_LABEL[id] }))} value={outcome} onChange={(id) => setOutcome(id as Outcome)} />
               {(outcome === "needs_time" || outcome === "no_reply") && (
                 <Rise>
@@ -398,22 +428,20 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
                 <Icon name="pause" /> {q.paused ? "Resume automatic texts" : "Pause automatic texts for this quote"}
               </Button>
             </div>
-          ) : q.status === "booked" ? (
-            <div className="flex flex-wrap items-end gap-2">
-              <div>
-                <label htmlFor="job-value" className="mb-1 block text-xs font-medium text-muted">Final job value (£)</label>
-                <input id="job-value" inputMode="decimal" value={jobValue} onChange={(e) => setJobValue(e.target.value)} className={`${inputClass()} w-32 tabular-nums`} />
-              </div>
-              <ActionButton
-                label="Record completed job"
-                onRun={() => {
-                  const pence = Math.round(Number(jobValue) * 100);
-                  if (!Number.isFinite(pence) || pence <= 0) throw new Error("enter the job value in pounds");
-                  act((s) => markCompleted(s, q.id, pence, staff));
-                }}
-                success="Job recorded. Invoice raised: see Invoices."
-              />
+          ) : job ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+              <span className="text-text">
+                {job.number} · {JOB_STATUS_LABEL[job.status]} · {formatLondon(job.startAt)}
+              </span>
+              <Link href={`/jobs?job=${job.id}`} className="inline-flex min-h-11 items-center rounded-lg bg-accent px-4 font-medium text-white hover:bg-accent-hover">View job</Link>
             </div>
+          ) : q.status === "booked" ? (
+            booking ? <BookJobForm q={q} onCancel={() => setBooking(false)} /> : (
+              <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+                <span className="text-muted">Accepted. Book it in to create the job.</span>
+                <Button variant="primary" onClick={() => setBooking(true)}>Book job</Button>
+              </div>
+            )
           ) : (
             <p className="text-sm text-muted">{status.label}. Nothing more to chase.</p>
           )}
@@ -445,7 +473,7 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
             </Button>
           </div>
           </Rise>
-        ) : chase ? (
+        ) : chase && !booking && outcome !== "accepted" ? (
           <div className="flex flex-wrap items-center justify-end gap-2">
             <InlineFeedback feedback={save.feedback?.ok ? null : save.feedback} />
             <Button variant="primary" className="w-full sm:w-auto" disabled={save.pending} aria-busy={save.pending} onClick={submitOutcome}>

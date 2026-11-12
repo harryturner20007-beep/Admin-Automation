@@ -31,7 +31,9 @@ export type GateReason =
   | "template_unresolved"
   | "reminder_pending"
   | "invoice_settled"
-  | "invoice_paused";
+  | "invoice_not_issued"
+  | "invoice_paused"
+  | "invoice_texts_off";
 
 export const GATE_REASON_TEXT: Record<GateReason, string> = {
   garage_paused: "Garage is paused",
@@ -51,11 +53,13 @@ export const GATE_REASON_TEXT: Record<GateReason, string> = {
   template_unresolved: "Message has a field with no value",
   reminder_pending: "Staff set a reminder for a later date",
   invoice_settled: "Invoice is already paid",
+  invoice_not_issued: "Invoice is a draft or was cancelled",
   invoice_paused: "Reminders are paused for this invoice",
+  invoice_texts_off: "Invoice texts are switched off for this garage",
 };
 
 export function isSuppressed(suppressions: Suppression[], garageId: string, phone: string): boolean {
-  return suppressions.some((s) => s.garageId === garageId && s.phone === phone);
+  return suppressions.some((s) => s.garageId === garageId && s.phone === phone && !s.liftedAt);
 }
 
 export function isQuoteExpired(quote: Quote, garage: Garage, now: string): boolean {
@@ -75,7 +79,9 @@ export function checkSendGate(input: GateInput): GateReason[] {
   if (garage.mode === "off") reasons.push("follow_ups_off");
   if (quote.paused) reasons.push("quote_paused");
   if (quote.status !== "open") reasons.push("status_not_open");
-  if (quote.status === "open" && t - Date.parse(quote.statusConfirmedAt) > garage.statusFreshHours * HOUR_MS)
+  // Draft mode asks staff to confirm the quote is still open before a text goes. Automatic mode doesn't: the
+  // garage chose hands-off sending, and bookings, declines and replies recorded in the app already stop the chase.
+  if (garage.mode !== "automatic" && quote.status === "open" && t - Date.parse(quote.statusConfirmedAt) > garage.statusFreshHours * HOUR_MS)
     reasons.push("status_stale");
   if (!quote.eligibilityEvidenceRef?.trim()) reasons.push("no_eligibility_evidence");
   if (!template?.approved) reasons.push("template_not_approved");
@@ -103,9 +109,11 @@ export function checkInvoiceGate(input: { now: string; garage: Garage; quote: Qu
   const t = Date.parse(now);
   const reasons: GateReason[] = [];
   if (garage.paused) reasons.push("garage_paused");
-  if (garage.mode === "off") reasons.push("follow_ups_off");
-  if (invoice.status !== "unpaid") reasons.push("invoice_settled");
+  if (garage.invoiceMode === "off") reasons.push("invoice_texts_off");
+  if (invoice.status === "paid") reasons.push("invoice_settled");
+  else if (invoice.status !== "unpaid") reasons.push("invoice_not_issued"); // drafts are never chased
   if (invoice.chasePaused && step > 0) reasons.push("invoice_paused"); // pausing stops reminders, not the invoice itself
+  if (quote.unresolvedReply) reasons.push("unresolved_reply"); // the customer replied: staff deal with it before more chasing
   if (!quote.eligibilityEvidenceRef?.trim()) reasons.push("no_eligibility_evidence");
   if (isSuppressed(suppressions, garage.id, quote.phone)) reasons.push("number_suppressed");
   if (t < Date.parse(window.windowStart)) reasons.push("before_window");

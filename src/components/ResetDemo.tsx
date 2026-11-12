@@ -7,10 +7,11 @@ import { Button, InlineFeedback } from "./ui";
 /** Two-step reset so a stray click mid-meeting doesn't wipe the walkthrough. */
 /** `dark` adapts colours for the navy header. */
 export function ResetDemo({ size = "sm", dark = false }: { size?: "sm" | "md"; dark?: boolean }) {
-  const { reset } = useDemo();
+  const { reset, hosted } = useDemo();
   const { run, pending, feedback, setFeedback } = useAction();
   const [confirming, setConfirming] = useState(false);
 
+  if (hosted) return null; // a real garage's records are never reset
   if (confirming) {
     return (
       <span className={`inline-flex flex-wrap items-center gap-2 text-xs ${dark ? "text-slate-200" : "text-slate-700"}`}>

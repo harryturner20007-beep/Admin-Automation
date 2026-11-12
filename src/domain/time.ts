@@ -33,10 +33,16 @@ const fmt = new Intl.DateTimeFormat("en-GB", {
 
 const WEEKDAYS: Record<string, number> = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 };
 
+// formatToParts is the hot path of every scheduler tick; the same instants recur, so remember them.
+const partsCache = new Map<number, LondonParts>();
+
 export function londonParts(at: Date | string): LondonParts {
   const date = typeof at === "string" ? new Date(at) : at;
+  const t = date.getTime();
+  const hit = partsCache.get(t);
+  if (hit) return { ...hit };
   const parts = Object.fromEntries(fmt.formatToParts(date).map((p) => [p.type, p.value]));
-  return {
+  const result: LondonParts = {
     y: Number(parts.year),
     m: Number(parts.month),
     d: Number(parts.day),
@@ -44,6 +50,9 @@ export function londonParts(at: Date | string): LondonParts {
     mm: Number(parts.minute),
     weekday: WEEKDAYS[parts.weekday as string],
   };
+  if (partsCache.size > 50_000) partsCache.clear(); // bounded
+  partsCache.set(t, result);
+  return { ...result };
 }
 
 /** Convert a London wall-clock time to a UTC Date (handles BST/GMT). */
@@ -95,32 +104,27 @@ export function parseHHMM(s: string): { hh: number; mm: number } {
   return { hh, mm };
 }
 
+// Formatters are costly to build, so each is made once.
+const dateTimeFmt = (withDay: boolean) =>
+  new Intl.DateTimeFormat("en-GB", { timeZone: LONDON, weekday: withDay ? "short" : undefined, day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+const fmtWithDay = dateTimeFmt(true);
+const fmtNoDay = dateTimeFmt(false);
+const fmtDate = new Intl.DateTimeFormat("en-GB", { timeZone: LONDON, weekday: "short", day: "numeric", month: "short" });
+const fmtTime = new Intl.DateTimeFormat("en-GB", { timeZone: LONDON, hour: "2-digit", minute: "2-digit", hourCycle: "h23" });
+
 export function formatLondon(at: string | Date, opts: { withDay?: boolean } = {}): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: LONDON,
-    weekday: opts.withDay === false ? undefined : "short",
-    day: "numeric",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-    hourCycle: "h23",
-  }).format(typeof at === "string" ? new Date(at) : at);
+  return (opts.withDay === false ? fmtNoDay : fmtWithDay).format(typeof at === "string" ? new Date(at) : at);
 }
 
 export function formatLondonDate(at: string | Date): string {
-  return new Intl.DateTimeFormat("en-GB", {
-    timeZone: LONDON,
-    weekday: "short",
-    day: "numeric",
-    month: "short",
-  }).format(typeof at === "string" ? new Date(at) : at);
+  return fmtDate.format(typeof at === "string" ? new Date(at) : at);
 }
 
 export const HOUR_MS = 3_600_000;
 export const DAY_MS = 24 * HOUR_MS;
 
 export function formatLondonTime(at: string | Date): string {
-  return new Intl.DateTimeFormat("en-GB", { timeZone: LONDON, hour: "2-digit", minute: "2-digit", hourCycle: "h23" }).format(typeof at === "string" ? new Date(at) : at);
+  return fmtTime.format(typeof at === "string" ? new Date(at) : at);
 }
 
 /** ISO instant → "YYYY-MM-DDTHH:mm" in London time, for <input type="datetime-local">. */

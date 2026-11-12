@@ -2,13 +2,14 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { confirmBooking, formatPounds, reconcileSend, resolveTask } from "@/domain/engine";
+import { formatPounds, reconcileSend, resolveTask } from "@/domain/engine";
 import { messageLabel } from "@/domain/invoices";
 import { formatLondon } from "@/domain/time";
 import type { StaffTask, TaskKind } from "@/domain/types";
 import { REPLY_PRESETS } from "@/demo/seed";
 import { useAction, useDemo } from "@/demo/store";
 import { ActionButton } from "./ActionButton";
+import { BookJobForm } from "./BookJobForm";
 import { quoteRow } from "./quoteRows";
 import { Button, Icon, InlineFeedback, inputClass, Plate } from "./ui";
 
@@ -79,7 +80,8 @@ function Conversation({ task }: { task: StaffTask }) {
 }
 
 function Detail({ t, onBack }: { t: StaffTask; onBack: () => void }) {
-  const { state, staff, act, notify } = useDemo();
+  const { state, staff, act } = useDemo();
+  const [booking, setBooking] = useState(false);
   const heading = useRef<HTMLHeadingElement>(null);
   const quotes = t.quoteIds.map((id) => state.quotes.find((q) => q.id === id)!).filter(Boolean);
   const q = quotes.length === 1 ? quotes[0] : undefined;
@@ -135,16 +137,14 @@ function Detail({ t, onBack }: { t: StaffTask; onBack: () => void }) {
           <div className="text-sm font-semibold text-ink">{t.status === "open" ? `Handed to staff: ${KIND[t.kind].label.toLowerCase()}` : "Handled"}</div>
           <p className="mt-0.5 text-sm text-slate-600">{t.status === "open" ? KIND[t.kind].handoff : t.resolution}</p>
         </div>
-        {t.status === "open" && (
+        {t.status === "open" && booking && q?.status === "open" ? (
+          <div className="mt-4">
+            <BookJobForm key={q.id} q={q} onCancel={() => setBooking(false)} />
+          </div>
+        ) : t.status === "open" && (
           <div className="mt-3 flex flex-wrap items-center gap-2">
             {t.kind === "booking_request" && q?.status === "open" && (
-              <ActionButton
-                variant="primary"
-                label="Slot agreed: confirm booking"
-                onRun={() => act((s) => confirmBooking(s, q.id, staff))}
-                success="Booking confirmed"
-                onDone={() => notify(`Booking confirmed for ${q.customerName}. Follow-ups stopped.`, [q.id])}
-              />
+              <Button variant="primary" onClick={() => setBooking(true)}>Book job</Button>
             )}
             {t.kind === "reconcile_send" && (
               <>
@@ -155,7 +155,7 @@ function Detail({ t, onBack }: { t: StaffTask; onBack: () => void }) {
             {t.kind === "opt_out_notice" && <ActionButton label="Acknowledge" onRun={() => act((s) => resolveTask(s, t.id, "resume", staff))} success="Acknowledged" />}
             {t.kind !== "opt_out_notice" && t.kind !== "reconcile_send" && (
               <>
-                <ActionButton variant={t.kind === "booking_request" ? "secondary" : "primary"} label="Handled: resume follow-ups" onRun={() => act((s) => resolveTask(s, t.id, "resume", staff))} success="Follow-ups resumed" />
+                <ActionButton variant={t.kind === "booking_request" ? "secondary" : "primary"} label="Handled: resume chasing" onRun={() => act((s) => resolveTask(s, t.id, "resume", staff))} success="Chasing resumed" />
                 <ActionButton label="Handled: stop follow-ups" onRun={() => act((s) => resolveTask(s, t.id, "stop", staff))} success="Follow-ups stopped" />
               </>
             )}
@@ -203,7 +203,7 @@ function SimulateInbound() {
 }
 
 export function RepliesView() {
-  const { state, garageId, act } = useDemo();
+  const { state, garageId, act, hosted } = useDemo();
   const [selected, setSelected] = useState<string | null>(() => queuedReply ?? (window.location.hash.slice(1) || null));
   const tasks = state.tasks.filter((t) => t.garageId === garageId);
   // Newest first; reading one doesn't re-sort the list under the cursor.
@@ -279,7 +279,7 @@ export function RepliesView() {
                 <ul className="divide-y divide-steel-line/70">{handled.map(item)}</ul>
               </>
             )}
-            <SimulateInbound />
+            {!hosted && <SimulateInbound /> /* real replies arrive from the provider */}
           </nav>
 
           <section aria-label="Conversation" className={current ? "" : "hidden lg:block"}>

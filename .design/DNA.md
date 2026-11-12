@@ -78,6 +78,7 @@ Hierarchy by weight and colour (#17212B vs #596779); success and attention tints
 - **[Controls](components/controls.md)** -- button, input, status label, plate label.
 - **[Quote list](components/quote-list.md)** -- summary cards, toolbar, table, mobile cards.
 - **[Detail panel](components/detail-panel.md)** -- side panel, drawer, sheet, composer.
+- **[Workflow](components/workflow.md)** -- progress strip, record panel, jobs list, charges editor, invoice states, auth card.
 
 ---
 

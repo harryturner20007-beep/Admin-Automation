@@ -82,6 +82,11 @@ const ICONS = {
   copy: "M9 9h11v11H9zM5 15H4V4h11v1",
   undo: "M9 14L4 9l5-5M4 9h11a5 5 0 0 1 0 10h-3",
   next: "M9 5l7 7-7 7",
+  home: "M4 11l8-7 8 7M6 9.5V20h12V9.5",
+  wrench: "M15 4a4 4 0 0 0-3.9 5L4 16l4 4 7.1-7.1A4 4 0 0 0 20 9l-3 1-2-2 1-3z",
+  download: "M12 4v11M7 10l5 5 5-5M5 20h14",
+  logout: "M15 4h4v16h-4M10 8l-4 4 4 4M6 12h10",
+  doc: "M7 3h7l4 4v14H7zM14 3v4h4M10 12h5M10 16h5",
 } as const;
 
 export type IconName = keyof typeof ICONS;

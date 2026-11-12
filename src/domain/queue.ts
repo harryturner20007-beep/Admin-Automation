@@ -107,6 +107,16 @@ export function recordOutcome(state: AppState, quoteId: string, outcome: Outcome
   }
 }
 
+/** The day a booked job is booked in for (shown on the calendar). Empty clears it. */
+export function setBookedFor(state: AppState, quoteId: string, ymd: string, staffName: string) {
+  const q = state.quotes.find((x) => x.id === quoteId);
+  if (!q) throw new Error("Quote not found");
+  if (q.status !== "booked") throw new Error("Only booked jobs can be given a date");
+  if (ymd && !/^\d{4}-\d{2}-\d{2}$/.test(ymd)) throw new Error("choose a date");
+  q.bookedFor = ymd || undefined;
+  log(state, q.garageId, "booked_for", ymd ? `${staffName} booked ${q.customerName}'s job in for ${formatLondonDate(`${ymd}T12:00:00Z`)}` : `${staffName} cleared the booked-in date for ${q.customerName}`, q.id);
+}
+
 export type ContactChannel = "messages_app" | "call" | "copy";
 
 /**

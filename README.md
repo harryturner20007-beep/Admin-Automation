@@ -1,7 +1,15 @@
-# Quote follow-up: demo (Phase 1)
+# Garage desk
 
-A managed repair-quote follow-up service for independent UK garages.
-**Phase 1 is a clickable sales demo on synthetic data.** No accounts, database or real SMS are needed.
+Quotes, jobs, invoices and payment chasing for independent UK garages, as one connected workflow:
+**quote → booked job → completed job → invoice → payment / chasing**.
+
+- **Hosted** (with Supabase configured): one website, a private workspace per garage, invitation-only sign-in.
+  Setup, accounts, costs, security model and backups: [docs/HOSTING.md](docs/HOSTING.md).
+  Onboarding a garage and the daily workflow: [docs/ONBOARDING.md](docs/ONBOARDING.md).
+- **Demo** (no settings): the same screens in the browser over synthetic sample data, for sales demos.
+
+Checks: `npm test` (domain, workflow, save queue, PDF, and the database migration with row-level security on
+an in-process Postgres), `npm run lint`, `npm run typecheck`, `npm run build`.
 
 ## Run it
 

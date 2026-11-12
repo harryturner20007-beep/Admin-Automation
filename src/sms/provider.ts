@@ -5,12 +5,14 @@ export type SendRequest = {
   to: string;
   body: string;
   idempotencyKey: string; // the durable send key
+  messageId?: string; // the app's message record, for the send ledger
 };
 
 export type SendResult =
   | { kind: "accepted"; providerMessageId: string; status: string }
   | { kind: "rejected"; error: string } // provider definitely did not accept: safe to mark failed
-  | { kind: "ambiguous"; error: string }; // timeout / 5xx / network: MUST reconcile before any retry
+  | { kind: "ambiguous"; error: string } // timeout / 5xx / network: MUST reconcile before any retry
+  | { kind: "in_flight" }; // another worker or click is sending this exact message right now: leave it to them
 
 /** Twilio (Phase 3) implements this same interface. */
 export interface SmsProvider {

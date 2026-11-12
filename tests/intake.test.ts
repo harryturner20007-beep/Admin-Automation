@@ -120,8 +120,9 @@ describe("simulated automation (the meeting scenario)", () => {
     expect(s.messages.filter((m) => m.quoteId === q.id)).toHaveLength(0);
   });
 
-  it("does nothing on clock moves when follow-ups are off", async () => {
+  it("does nothing on clock moves when follow-ups and invoice texts are off", async () => {
     s.garages[0].mode = "off";
+    s.garages[0].invoiceMode = "off";
     const before = s.garages[0].lastCheckAt;
     expect(await advanceDemoClock(s, DAY_MS)).toBeNull();
     expect(s.garages[0].lastCheckAt).toBe(before);

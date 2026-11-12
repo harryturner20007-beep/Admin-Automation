@@ -11,14 +11,39 @@ import { useDemo } from "@/demo/store";
 import { motionAllowed } from "./motion";
 import { ResetDemo } from "./ResetDemo";
 import { Toast } from "./Toast";
+import { signOut } from "@/server/auth";
 import { Icon, type IconName } from "./ui";
 
+// The workflow: quote → booked job → completed job → invoice → payment.
 const TABS: { href: string; label: string; icon: IconName }[] = [
+  { href: "/overview", label: "Overview", icon: "home" },
   { href: "/quotes", label: "Quotes", icon: "quotes" },
-  { href: "/replies", label: "Replies", icon: "inbox" },
+  { href: "/jobs", label: "Jobs", icon: "wrench" },
   { href: "/invoices", label: "Invoices", icon: "pound" },
+  { href: "/settings", label: "Settings", icon: "sliders" },
+];
+// Secondary views, one click from the sidebar (and from Overview on phones).
+const MORE: { href: string; label: string; icon: IconName }[] = [
+  { href: "/replies", label: "Replies", icon: "inbox" },
+  { href: "/calendar", label: "Calendar", icon: "calendar" },
   { href: "/results", label: "Results", icon: "results" },
 ];
+
+type User = { email: string; garageName: string; platformAdmin: boolean };
+
+function SyncBadge() {
+  const { sync, hosted } = useDemo();
+  if (!hosted) return null;
+  const text = sync.state === "saved" ? "All changes saved" : sync.state === "saving" ? "Saving…" : sync.message;
+  return (
+    <span role="status" aria-live="polite" className={`text-xs ${sync.state === "saved" ? "text-muted" : sync.state === "saving" ? "text-text" : "font-medium text-danger"}`}>
+      {text}
+      {sync.state === "signed_out" && (
+        <a href="/login" target="_blank" rel="noopener" className="ml-2 underline">Sign in (new tab)</a>
+      )}
+    </span>
+  );
+}
 
 const focus = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
@@ -26,13 +51,12 @@ const focus = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visi
  * App shell (.design/patterns/shell-and-states.md):
  * ≥1200px a 208px sidebar, 768–1199px a 64px icon rail, <768px the top navigation bar.
  */
-export function Shell({ children }: { children: ReactNode }) {
-  const { state, garageId, staff, act, advanceClock, setProviderMode, epoch } = useDemo();
+export function Shell({ children, user }: { children: ReactNode; user?: User }) {
+  const { state, garageId, staff, act, advanceClock, setProviderMode, epoch, hosted } = useDemo();
   const path = usePathname() ?? "";
   const garage = state.garages.find((g) => g.id === garageId)!;
   const unread = state.tasks.filter((t) => t.garageId === garageId && t.status === "open" && !t.readAt).length;
   const togglePause = () => act((s) => setGaragePaused(s, garageId, !garage.paused, staff));
-  const settingsActive = path.startsWith("/settings");
 
   // Active-link edge: placed on first paint, then slides (200ms power2.out) between the main links.
   const nav = useRef<HTMLElement>(null);
@@ -94,17 +118,26 @@ export function Shell({ children }: { children: ReactNode }) {
             );
           })}
         </nav>
+        <nav aria-label="More" className="flex flex-col gap-1 border-t border-line px-2 py-3">
+          {MORE.map((t) => {
+            const active = path.startsWith(t.href);
+            return (
+              <Link
+                key={t.href}
+                href={t.href}
+                aria-current={active ? "page" : undefined}
+                aria-label={`${t.label}${t.href === "/replies" && unread ? `, ${unread} unread` : ""}`}
+                title={t.label}
+                className={`relative flex min-h-11 items-center justify-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors desk:justify-start ${focus} ${active ? "bg-selected text-accent" : "text-muted hover:bg-canvas hover:text-text"}`}
+              >
+                <Icon name={t.icon} className="h-5 w-5" />
+                <span className="hidden flex-1 desk:inline">{t.label}</span>
+                {badge(t, true)}
+              </Link>
+            );
+          })}
+        </nav>
         <div className="flex flex-col gap-1 border-t border-line px-2 py-3">
-          <Link
-            href="/settings"
-            aria-current={settingsActive ? "page" : undefined}
-            aria-label="Follow-up settings"
-            title="Follow-up settings"
-            className={`flex min-h-11 items-center justify-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors desk:justify-start ${focus} ${settingsActive ? "bg-selected text-accent" : "text-muted hover:bg-canvas hover:text-text"}`}
-          >
-            <Icon name="sliders" className="h-5 w-5" />
-            <span className="hidden desk:inline">Follow-up settings</span>
-          </Link>
           <button
             aria-pressed={garage.paused}
             aria-label="Pause all sending"
@@ -115,6 +148,20 @@ export function Shell({ children }: { children: ReactNode }) {
             <Icon name="pause" className="h-5 w-5" />
             <span className="hidden desk:inline">{garage.paused ? "Sending paused" : "Pause all sending"}</span>
           </button>
+          {user && (
+            <form action={signOut} className="hidden px-3 pt-2 text-xs text-muted desk:block">
+              <span className="block truncate" title={user.email}>{user.email}</span>
+              {user.platformAdmin && <Link href="/admin" className="mr-3 underline">Admin</Link>}
+              <button className={`min-h-8 underline hover:text-text ${focus}`}>Sign out</button>
+            </form>
+          )}
+          {user && (
+            <form action={signOut} className="desk:hidden">
+              <button aria-label={`Sign out ${user.email}`} title="Sign out" className={`flex min-h-11 w-full items-center justify-center rounded-lg text-muted hover:bg-canvas ${focus}`}>
+                <Icon name="logout" className="h-5 w-5" />
+              </button>
+            </form>
+          )}
         </div>
       </aside>
 
@@ -123,9 +170,11 @@ export function Shell({ children }: { children: ReactNode }) {
         <div className="flex items-center gap-1 px-4 pt-2">
           <span aria-hidden className="grid h-7 w-7 place-items-center rounded-lg bg-accent text-white"><Icon name="bolt" className="h-3.5 w-3.5" /></span>
           <span className="ml-1 min-w-0 flex-1 truncate text-sm font-semibold text-text">{garage.name}</span>
-          <Link href="/settings" aria-label="Follow-up settings" className={`grid h-11 w-11 place-items-center rounded-lg text-muted hover:bg-canvas ${focus}`}>
-            <Icon name="sliders" className="h-5 w-5" />
-          </Link>
+          {user && (
+            <form action={signOut}>
+              <button className={`min-h-11 rounded-lg px-2 text-xs font-medium text-muted hover:bg-canvas ${focus}`}>Sign out</button>
+            </form>
+          )}
           <button aria-pressed={garage.paused} aria-label="Pause all sending" onClick={togglePause} className={`grid h-11 w-11 place-items-center rounded-lg ${focus} ${garage.paused ? "bg-danger-bg text-danger" : "text-muted hover:bg-canvas"}`}>
             <Icon name="pause" className="h-5 w-5" />
           </button>
@@ -134,7 +183,7 @@ export function Shell({ children }: { children: ReactNode }) {
           {TABS.map((t) => {
             const active = path.startsWith(t.href);
             return (
-              <Link key={t.href} href={t.href} aria-current={active ? "page" : undefined} className={`flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg text-sm font-medium ${focus} ${active ? "bg-selected text-accent" : "text-muted hover:bg-canvas"}`}>
+              <Link key={t.href} href={t.href} aria-current={active ? "page" : undefined} className={`flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg text-xs font-medium min-[440px]:gap-1.5 min-[440px]:text-sm ${focus} ${active ? "bg-selected text-accent" : "text-muted hover:bg-canvas"}`}>
                 <Icon name={t.icon} className="hidden h-4 w-4 min-[440px]:block" />
                 {t.label}
                 {badge(t)}
@@ -145,8 +194,14 @@ export function Shell({ children }: { children: ReactNode }) {
         </nav>
       </header>
 
+      {hosted && (
+        <div className="flex min-h-8 items-center justify-end border-b border-line bg-white px-4 md:px-8">
+          <SyncBadge />
+        </div>
+      )}
+
       {/* Demo controls: a simulated clock and SMS provider, never part of the real product. */}
-      <div className="border-b border-line bg-white">
+      {!hosted && <div className="border-b border-line bg-white">
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-1.5 text-xs text-muted md:px-8">
           <span className="rounded border border-dashed border-muted/60 px-1.5 py-0.5 font-medium text-text">Demo mode: sample data</span>
           <span className="flex items-center gap-1">
@@ -165,7 +220,7 @@ export function Shell({ children }: { children: ReactNode }) {
           </label>
           <span className="ml-auto"><ResetDemo /></span>
         </div>
-      </div>
+      </div>}
 
       {garage.paused && (
         <div role="status" className="border-b border-danger/20 bg-danger-bg px-4 py-2 text-center text-sm text-danger">
@@ -175,7 +230,7 @@ export function Shell({ children }: { children: ReactNode }) {
 
       {/* Re-mounting on reset clears filters, search, open panels and expanded replies.
           Pages other than Quotes keep their own display type (Archivo). */}
-      <main key={epoch} className={path.startsWith("/quotes") || path.startsWith("/invoices") ? undefined : "font-display"}>{children}</main>
+      <main key={epoch} className={["/overview", "/quotes", "/jobs", "/invoices", "/calendar", "/settings"].some((p) => path.startsWith(p)) ? undefined : "font-display"}>{children}</main>
       <Toast />
     </div>
   );

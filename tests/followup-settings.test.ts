@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import { advanceDemoClock } from "@/domain/automation";
-import { receiveInbound, setGaragePaused } from "@/domain/engine";
+import { approveMessage, dispatchApproved, receiveInbound, setGaragePaused } from "@/domain/engine";
 import { addQuote, type QuoteInput } from "@/domain/intake";
 import { applyFollowUpSettings, previewScheduleChanges, validateSettings, type SettingsInput } from "@/domain/settings";
 import { DEFAULT_TEMPLATES, renderSms, templateValues } from "@/domain/templates";
@@ -164,13 +164,18 @@ describe("automatic sending (simulated)", () => {
     expect(alreadySent).toBeGreaterThanOrEqual(1);
     applyFollowUpSettings(s, DEMO_GARAGE_ID, next, DEMO_STAFF);
     await advanceDemoClock(s, 2 * DAY_MS, provider);
-    // Step 1 is not sent again; step 2 goes at its new time (Thu 12 Nov 14:00) after staff confirm the quote is still open.
+    // Step 1 is not sent again; step 2 goes at its new time (Thu 12 Nov 14:00). Automatic mode needs no daily
+    // "still open" confirmation from staff.
     expect(outboundFor(ben).filter((m) => m.step === 1)).toHaveLength(1);
-    expect(toBen()).toHaveLength(1); // step 2 is held: the status confirmation is now over 24h old
+    expect(toBen()).toHaveLength(2);
+    expect(outboundFor(ben).find((m) => m.step === 2)).toMatchObject({ status: "delivered", sentAt: "2026-11-12T14:00:00.000Z" });
   });
 
   it("switching follow-up 2 off cancels its pending draft and schedules nothing", async () => {
     applyFollowUpSettings(s, DEMO_GARAGE_ID, settings({ mode: "draft" }), DEMO_STAFF);
+    await advanceDemoClock(s, 2 * HOUR_MS, provider); // Wed 12:00: follow-up 1 drafted
+    approveMessage(s, outboundFor(ben).find((m) => m.step === 1)!.id, DEMO_STAFF);
+    await dispatchApproved(s, provider);
     s.now = "2026-11-16T11:45:00.000Z"; // jump to follow-up 2 day without running checks
     ben.statusConfirmedAt = s.now;
     s.quotes.find((q) => q.id === ben.id)!.statusConfirmedAt = s.now;

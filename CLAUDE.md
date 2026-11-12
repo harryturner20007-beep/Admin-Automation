@@ -58,6 +58,10 @@ GSAP primitives: line reveal (yPercent 100→0+fade, 420ms expo.out, 60ms word s
 **Plate label**: #F5F7FA bg, 1px border, 4px radius, 12px/600 uppercase, first in row.
 **Status label**: tinted text label, 6px radius, 12px/500.
 **Detail panel**: 420px, sticky header (plate, customer, Close), then amount+status, work+line items, contact, composer, history, outcome+reminder.
+**Progress strip**: Quote → Job booked → Job completed → Invoice issued → Paid; done = accent dot+check; each step links to its record; in every record panel.
+**Record panel**: SidePanel = detail-panel shape; one primary footer action; after it fires show a confirmation, never another action in the same spot; record + filters in URL.
+**Jobs list**: tabs Today|Upcoming|In progress|Completed|Cancelled; cols Customer & vehicle | Work | Booked | Status | Action (Start job → Complete & create invoice → Review invoice → View job).
+**Charges editor**: rows type|description|qty|unit (ex VAT)|amount|remove; discount, VAT 20/5/0; totals right/tabular; diff vs accepted; extra work needs reason + authorisation.
 
 ### Patterns
 Outcomes Accepted | Needs time | No reply | Declined; reminders Tomorrow | In 3 days | Choose date with date shown; inline confirmation + Undo + Next quote. Three empty states: no quotes | no matches | none due.
