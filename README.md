@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Quote follow-up: demo (Phase 1)
 
-## Getting Started
+A managed repair-quote follow-up service for independent UK garages.
+**Phase 1 is a clickable sales demo on synthetic data.** No accounts, database or real SMS are needed.
 
-First, run the development server:
+## Run it
 
 ```bash
+npm install
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000. It redirects to the Quotes screen.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Other commands: `npm test` (Vitest), `npm run lint`, `npm run typecheck`, `npm run build`.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Demo state lives in the browser's localStorage. **Reset demo** (header, or the Results page) asks once,
+then puts everything back to the same starting point. A test checks the seed is identical every time.
 
-## Learn More
+## Walkthrough (about five minutes)
 
-To learn more about Next.js, take a look at the following resources:
+The demo clock starts at **Wed 11 Nov 2026, 10:00** (London). **Automatic drafting** is on in simulated mode:
+each time the demo clock moves, the follow-up check runs, just as the scheduler would in production.
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. **+ Add quote**: sample name, an `07700 900xxx` number, a job and **340**. Tick SMS consent and give an evidence
+   reference. The quote appears straight away with its next check ("Follow-up 1 on Fri 13 Nov").
+2. Reload. The quote is still there (saved in this browser).
+3. **+1 day** twice, to Fri 13 Nov. The automation drafts exactly one follow-up. **Run check now** doesn't add another.
+4. **Review & send** → **Confirm still open** (its status is 48 hours old) → **Approve & send**. Then in the panel,
+   **Simulate a customer reply → Wants to book → Receive reply**. Follow-up 2 is now on hold and the request is on **Replies**.
+5. **Confirm booking**. Open quote value drops, and Bookings this month goes up.
+6. **+ Add quote** with SMS consent left off. "Follow-ups off: no SMS consent recorded", and no draft is ever created.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+**Reset demo** (header or Results) asks once, then puts everything back.
 
-## Deploy on Vercel
+## Layout
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+```
+src/domain/     pure rules: London business days, scheduling, pre-send gate, reply rules, engine, intake, reporting
+src/sms/        SmsProvider interface + MockSmsProvider (Twilio adapter comes in Phase 3)
+src/demo/       synthetic seed (replayed through the real engine) + in-browser store
+src/components/ Shell, Quotes (metrics, automation bar, table, AddQuoteDrawer, QuoteDetails), Replies, Results; ui.tsx holds colour roles + icons
+tests/          Vitest tests for the rules and the acceptance scenarios that can run in memory
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+See `PLAN.md` for all four phases and `PROGRESS.md` for where things stand.

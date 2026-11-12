@@ -1,0 +1,11 @@
+import { QuotesView } from "@/components/QuotesView";
+
+// Client-only demo (data lives in browser storage): nothing to prerender, so skip instant-navigation validation.
+// Revisit when Phase 2 moves data to the server.
+export const instant = false;
+
+export const metadata = { title: "Quotes · Quote follow-up demo" };
+
+export default function QuotesPage() {
+  return <QuotesView />;
+}
