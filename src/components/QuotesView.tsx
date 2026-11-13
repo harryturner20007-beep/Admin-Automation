@@ -23,6 +23,7 @@ const CARDS: { id: Exclude<Bucket, "other">; label: string }[] = [
   { id: "staff_needed", label: "Staff needed" },
   { id: "awaiting_reply", label: "Follow-ups running" },
   { id: "accepted", label: "Accepted" },
+  { id: "cancelled", label: "Cancelled" },
 ];
 
 type Sort = "priority" | "updated" | "value";
@@ -85,12 +86,21 @@ export function QuotesView() {
   const [bucket, setBucket] = useState<Exclude<Bucket, "other"> | null>(fromLink === "staff_needed" || fromLink === "awaiting_reply" || fromLink === "accepted" ? fromLink : null);
   const [status, setStatus] = useState("all");
   const [sort, setSort] = useState<Sort>("priority");
-  const [search, setSearch] = useState("");
+  const [search, setSearch] = useState(() => params.get("q") ?? ""); // the top bar's search lands here
   // ?quote=<id> (from the Calendar) opens that quote's panel on arrival.
   const linked = params.get("quote");
   const [selected, setSelected] = useState<string | null>(() => (linked && state.quotes.some((q) => q.id === linked && q.garageId === garageId) ? linked : null));
   const [openIndex, setOpenIndex] = useState(0); // where the open quote sat, so "Next quote" works after it leaves the filter
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(() => params.get("add") !== null); // the top bar's "Add quote" (?add=<stamp>)
+  // The top bar can be used again while already on this page: follow its newest search or "Add quote".
+  const qParam = params.get("q");
+  const addParam = params.get("add");
+  const [seen, setSeen] = useState({ q: qParam, add: addParam });
+  if (seen.q !== qParam || seen.add !== addParam) {
+    setSeen({ q: qParam, add: addParam });
+    if (qParam !== null && qParam !== seen.q) setSearch(qParam);
+    if (addParam !== null && addParam !== seen.add) setAdding(true);
+  }
   const [flash, setFlash] = useState<{ id: string; n: number } | null>(null);
   const [enter, setEnter] = useState(true); // panel slides in when it opens, not when switching quotes
   const [intro] = useState(() => !introPlayed);
@@ -98,14 +108,16 @@ export function QuotesView() {
   const title = useRef<HTMLHeadingElement>(null);
 
   const quotes = state.quotes.filter((q) => q.garageId === garageId);
+  const cancelledOnly = bucket === "cancelled" || status === "Cancelled"; // cancelled quotes stay out of the working lists until asked for
+  const shown = cancelledOnly ? quotes : quotes.filter((q) => q.status !== "cancelled");
   // Keep the chosen status listed even when no quote has it any more, so the select never misstates the filter.
   const statuses = [...new Set([...quotes.map((q) => statusOf(state, q).label), ...(status === "all" ? [] : [status])])].sort();
   const term = squash(search);
   const compare = sort === "priority" ? priorityCompare(state) : sort === "updated" ? (a: Quote, b: Quote) => updatedAt(state, b).localeCompare(updatedAt(state, a)) : (a: Quote, b: Quote) => b.amountPence - a.amountPence;
-  const visible = quotes
+  const visible = shown
     .filter((q) => !bucket || bucketOf(state, q) === bucket)
     .filter((q) => status === "all" || statusOf(state, q).label === status)
-    .filter((q) => !term || [q.customerName, q.registration ?? "", q.job, q.customerJobDescription ?? "", q.vehicle].some((v) => squash(v).includes(term)))
+    .filter((q) => !term || [q.customerName, q.registration ?? "", q.job, q.customerJobDescription ?? "", q.vehicle, q.sourceQuoteId, q.phone, `0${q.phone.slice(3)}`].some((v) => squash(v).includes(term)))
     .sort(compare);
   const filtered = !!bucket || status !== "all" || !!term;
   // Customers whose text is waiting for an answer: shown at the top of the page until someone deals with it.
@@ -152,7 +164,7 @@ export function QuotesView() {
   // Brief highlight on the row whose status was just saved (skipped for reduced motion).
   useEffect(() => {
     if (!flash || !motionAllowed()) return;
-    const tween = gsap.fromTo(`[data-row="${flash.id}"]`, { backgroundColor: "#EAF4F6" }, { backgroundColor: "rgba(234,244,246,0)", duration: 0.9, ease: "power1.out", clearProps: "backgroundColor" });
+    const tween = gsap.fromTo(`[data-row="${flash.id}"]`, { backgroundColor: "#e6f3f2" }, { backgroundColor: "rgba(230,243,242,0)", duration: 0.9, ease: "power1.out", clearProps: "backgroundColor" });
     return () => {
       tween.revert();
     };
@@ -216,7 +228,7 @@ export function QuotesView() {
 
         {/* Summary cards (filters) */}
         <section aria-label="Summary" className="mt-6">
-          <div className="grid gap-2 md:grid-cols-3 md:gap-4">
+          <div className="grid gap-2 md:grid-cols-4 md:gap-4">
             {CARDS.map((c, i) => {
               const members = quotes.filter((q) => bucketOf(state, q) === c.id);
               const on = bucket === c.id;
@@ -239,7 +251,7 @@ export function QuotesView() {
           </div>
           <div className="mt-2 flex justify-end">
             <button aria-pressed={!bucket} onClick={() => setBucket(null)} className={`min-h-11 rounded-lg px-3 text-sm font-medium ${focusRing} ${!bucket ? "text-accent" : "text-muted hover:bg-white hover:text-text"}`}>
-              All quotes <span className="tabular-nums">({quotes.length})</span>
+              All quotes <span className="tabular-nums">({quotes.filter((q) => q.status !== "cancelled").length})</span>
             </button>
           </div>
         </section>

@@ -24,3 +24,32 @@ export function overview(state: AppState, garageId: string): OverviewItem[] {
     { id: "overdue", label: "Overdue invoices", count: overdue.length, amountPence: sum(overdue), href: "/invoices?filter=overdue", hint: "Past their due date" },
   ];
 }
+
+export type TrendPoint = { day: string; quotedPence: number; wonPence: number };
+
+/**
+ * Running totals for the Overview chart: value of quotes sent, and of those since booked or completed,
+ * day by day over the last `days` days (UK dates, oldest first). Cancelled quotes are left out.
+ */
+export function quoteTrend(state: AppState, garageId: string, days = 30): TrendPoint[] {
+  const DAY = 86_400_000;
+  const end = Date.parse(state.now);
+  const start = end - (days - 1) * DAY;
+  const quotes = state.quotes.filter((q) => q.garageId === garageId && q.status !== "cancelled" && Date.parse(q.quoteSentAt) >= start - (start % DAY));
+  let quoted = 0;
+  let won = 0;
+  const out: TrendPoint[] = [];
+  for (let i = 0; i < days; i++) {
+    const dayEnd = start - (start % DAY) + (i + 1) * DAY;
+    const dayStart = dayEnd - DAY;
+    for (const q of quotes) {
+      const t = Date.parse(q.quoteSentAt);
+      if (t >= dayStart && t < dayEnd) {
+        quoted += q.amountPence;
+        if (q.status === "booked" || q.status === "completed") won += q.amountPence;
+      }
+    }
+    out.push({ day: new Date(dayStart).toISOString().slice(0, 10), quotedPence: quoted, wonPence: won });
+  }
+  return out;
+}

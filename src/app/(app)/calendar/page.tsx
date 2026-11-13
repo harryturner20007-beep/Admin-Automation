@@ -4,7 +4,7 @@ import { Suspense } from "react";
 // Client-only demo (data lives in browser storage): nothing to prerender, so skip instant-navigation validation.
 export const instant = false;
 
-export const metadata = { title: "Calendar · Quote follow-up demo" };
+export const metadata = { title: "Calendar · Revloop" };
 
 export default function CalendarPage() {
   return <Suspense><CalendarView /></Suspense>;

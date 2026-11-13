@@ -1,8 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC = ["/login", "/forgot-password", "/reset-password", "/auth/", "/api/cron/", "/api/sms/", "/i/"]; // webhooks check their own signature; /i/ links are opened by customers
+const PUBLIC = ["/login", "/admin/login", "/demo", "/pricing", "/forgot-password", "/reset-password", "/auth/", "/api/cron/", "/api/sms/", "/i/"]; // webhooks check their own signature; /i/ links are opened by customers
 const REMEMBER_COOKIE = "gm-remember";
+const DEMO_COOKIE = "gm-demo"; // the free demo: the app layout still decides what it may see (sample data only)
 
 /**
  * Hosted only. Refreshes the Supabase session cookie on each request, sends signed-out visitors to the
@@ -35,13 +36,13 @@ export async function proxy(request: NextRequest) {
 
   // Server actions check the session themselves and answer "signed out", which the save queue shows;
   // redirecting them would look like a network error instead.
-  if (!data?.claims && path !== "/" && !PUBLIC.some((p) => path.startsWith(p)) && !request.headers.has("next-action")) {
+  if (!data?.claims && !request.cookies.has(DEMO_COOKIE) && path !== "/" && !PUBLIC.some((p) => path.startsWith(p)) && !request.headers.has("next-action")) {
     const login = request.nextUrl.clone();
-    login.pathname = "/login";
+    login.pathname = path.startsWith("/admin") ? "/admin/login" : "/login";
     login.search = "";
     const hadSession = request.cookies.getAll().some((c) => c.name.startsWith("sb-") && c.name.includes("auth-token"));
     if (hadSession) login.searchParams.set("expired", "1");
-    if (path !== "/") login.searchParams.set("next", path + request.nextUrl.search); // back to the same record after sign-in
+    if (path !== "/" && !path.startsWith("/admin")) login.searchParams.set("next", path + request.nextUrl.search); // back to the same record after sign-in
     const redirect = NextResponse.redirect(login);
     redirect.headers.set("Cache-Control", "private, no-store");
     return redirect;

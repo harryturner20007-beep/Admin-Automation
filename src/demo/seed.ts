@@ -44,6 +44,14 @@ const garage: Garage = {
   invoiceMode: "automatic",
   followUps: structuredClone(DEFAULT_FOLLOW_UPS),
   synthetic: true,
+  catalogue: [
+    { id: "cat_1", kind: "labour", description: "Labour, one hour", unitPence: 6500 },
+    { id: "cat_2", kind: "labour", description: "Interim service", unitPence: 12900 },
+    { id: "cat_3", kind: "labour", description: "Full service", unitPence: 19900 },
+    { id: "cat_4", kind: "part", description: "Front brake pads (pair)", unitPence: 4800 },
+    { id: "cat_5", kind: "part", description: "Front brake discs (pair)", unitPence: 9200 },
+    { id: "cat_6", kind: "part", description: "Engine oil 5W-30 (5 litres)", unitPence: 3600 },
+  ],
   business: {
     tradingName: "Riverside Garage",
     legalName: "Riverside Garage (Demo) Ltd",

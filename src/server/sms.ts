@@ -107,7 +107,7 @@ export async function sendTestText(to: string): Promise<{ ok: true; sid: string;
     if (!provider) return { ok: false, error: setupError(sender) };
     const { count } = await adminClient().from("sms_sends").select("send_key", { count: "exact", head: true }).eq("garage_id", m.garageId).eq("is_test", true).gte("claimed_at", new Date(Date.now() - 86_400_000).toISOString());
     if ((count ?? 0) >= 5) return { ok: false, error: "That's 5 test texts today. Try again tomorrow." };
-    const body = `Test from ${m.garageName} via Garage desk. If you got this, texts from ${sender!.phone_e164} are working.`;
+    const body = `Test from ${m.garageName} via Revloop. If you got this, texts from ${sender!.phone_e164} are working.`;
     const r = await provider.send({ from: sender!.phone_e164, to: phone, body, idempotencyKey: `test:${randomUUID()}` });
     if (r.kind === "accepted") return { ok: true, sid: r.providerMessageId, status: r.status };
     return { ok: false, error: "error" in r ? r.error : "Already sending" };

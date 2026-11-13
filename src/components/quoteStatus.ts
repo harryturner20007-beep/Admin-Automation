@@ -8,6 +8,7 @@ export function statusOf(state: AppState, q: Quote): { label: string; tone: Stat
   if (q.status === "completed") return { label: "Job completed", tone: "success" };
   if (q.status === "booked") return { label: "Booked", tone: "success" };
   if (q.status === "declined") return { label: "Declined", tone: "neutral" };
+  if (q.status === "cancelled") return { label: "Cancelled", tone: "neutral" };
   if (q.status === "expired") return { label: "Expired", tone: "neutral" };
   if (isSuppressed(state.suppressions, q.garageId, q.phone)) return { label: "Opted out", tone: "danger" };
   if (q.booking === "requested") return { label: "Booking requested", tone: "attention" };

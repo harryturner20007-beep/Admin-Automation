@@ -2,10 +2,13 @@
 // Sign-in, password reset, invitation acceptance, sign-out and the platform-admin onboarding actions.
 // Passwords are handled by Supabase Auth only; this code never stores or logs them.
 
+import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { newWorkspace } from "@/domain/workspace";
-import { checkDemoCredentials, DEMO_COOKIE } from "@/lib/demoAuth";
+import { checkDemoAdminCredentials, checkDemoCredentials, DEMO_ADMIN_COOKIE, DEMO_COOKIE } from "@/lib/demoAuth";
+import { DEMO_GARAGE_ID } from "@/demo/seed";
+import { demoAddUser, demoCreateGarage, demoGarages } from "./demoAdmin";
 import { HOSTED } from "@/lib/mode";
 import { ADMIN_GARAGE_COOKIE, adminClient, currentMember, REMEMBER_COOKIE, userClient } from "./supabase";
 
@@ -27,6 +30,31 @@ export async function demoSignIn(_: FormState, form: FormData): Promise<FormStat
   if (!checkDemoCredentials(String(form.get("username") ?? ""), String(form.get("password") ?? ""))) return { error: "That username and password don't match." };
   (await cookies()).set(DEMO_COOKIE, "1", { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 8 * 3600 });
   redirect("/overview");
+}
+
+const demoCookie = { httpOnly: true, sameSite: "lax" as const, secure: process.env.NODE_ENV === "production", path: "/", maxAge: 8 * 3600 };
+
+/** Platform admin sign-in. Hosted: a Supabase account that is in platform_admins; anyone else is signed straight out again. */
+export async function adminSignIn(_: FormState, form: FormData): Promise<FormState> {
+  const denied = { error: "Those details don't match an admin account." }; // same message for every failure
+  if (!HOSTED) {
+    if (!checkDemoAdminCredentials(String(form.get("username") ?? ""), String(form.get("password") ?? ""))) return denied;
+    (await cookies()).set(DEMO_ADMIN_COOKIE, "1", demoCookie);
+    redirect("/admin");
+  }
+  const address = email(form.get("email"));
+  const password = String(form.get("password") ?? "");
+  if (!isEmail(address) || !password) return { error: "Enter your email address and password." };
+  (await cookies()).set(REMEMBER_COOKIE, "0", { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/" }); // admin sessions end with the browser
+  const supabase = await userClient();
+  const { data, error } = await supabase.auth.signInWithPassword({ email: address, password });
+  if (error) return error.status === 429 ? { error: "Too many attempts. Wait a few minutes and try again." } : denied;
+  const { data: row } = await adminClient().from("platform_admins").select("user_id").eq("user_id", data.user.id).maybeSingle();
+  if (!row) {
+    await supabase.auth.signOut({ scope: "local" });
+    return denied;
+  }
+  redirect("/admin");
 }
 
 export async function signIn(_: FormState, form: FormData): Promise<FormState> {
@@ -71,19 +99,29 @@ export async function setPassword(_: FormState, form: FormData): Promise<FormSta
 
 /** Sign out here, or everywhere (revokes every session's refresh token). */
 export async function signOut(form: FormData) {
+  const to = form.get("admin") ? "/admin/login" : "/login";
   if (!HOSTED) {
-    (await cookies()).delete(DEMO_COOKIE);
-    redirect("/login");
+    const store = await cookies();
+    store.delete(DEMO_COOKIE);
+    store.delete(DEMO_ADMIN_COOKIE);
+    redirect(to);
   }
   const supabase = await userClient();
   await supabase.auth.signOut({ scope: form.get("everywhere") === "on" ? "global" : "local" });
   const store = await cookies();
+  store.delete(DEMO_COOKIE);
   store.delete(REMEMBER_COOKIE);
   store.delete(ADMIN_GARAGE_COOKIE);
-  redirect("/login");
+  redirect(to);
 }
 
 // ---------- platform admin: onboard a garage ----------
+
+/** Demo: the admin cookie. Hosted: a platform admin's session. */
+export async function isAdmin(): Promise<boolean> {
+  if (!HOSTED) return !!(await cookies()).get(DEMO_ADMIN_COOKIE);
+  return !!(await currentMember())?.platformAdmin;
+}
 
 async function requireAdmin() {
   const m = await currentMember();
@@ -94,6 +132,10 @@ async function requireAdmin() {
 export type GarageRow = { id: string; name: string; created_at: string; members: { email: string; role: string; confirmed: boolean }[]; sms: { phone: string; status: string } | null };
 
 export async function listGarages(): Promise<GarageRow[]> {
+  if (!HOSTED) {
+    if (!(await isAdmin())) throw new Error("Not allowed");
+    return demoGarages();
+  }
   await requireAdmin();
   const admin = adminClient();
   const [{ data: garages }, { data: members }, { data: users }, { data: numbers }] = await Promise.all([
@@ -119,22 +161,42 @@ async function invite(garageId: string, address: string, role: "owner" | "staff"
 }
 
 export async function createGarageAndInvite(_: FormState, form: FormData): Promise<FormState> {
-  try {
-    await requireAdmin();
-  } catch {
-    return { error: "Only platform admins can do this." };
-  }
+  if (!(await isAdmin())) return { error: "Only platform admins can do this." };
   const name = String(form.get("garage") ?? "").trim();
   const owner = email(form.get("email"));
   const ownerName = String(form.get("name") ?? "").trim().slice(0, 80);
   if (!name || name.length > 120) return { error: "Enter the garage's name." };
   if (!isEmail(owner)) return { error: "Enter the owner's email address." };
+  revalidatePath("/admin");
+  if (!HOSTED) {
+    if (demoGarages().some((g) => g.members.some((m) => m.email === owner))) return { error: "That email already has an account. Each account belongs to one garage." };
+    demoCreateGarage(name, owner);
+    return { ok: `${name} added. Demo only: no invitation email was sent.` };
+  }
   const template = newWorkspace("pending", name, new Date().toISOString());
   const { data: garageId, error } = await adminClient().rpc("create_garage", { p_name: name, p_doc_template: template });
   if (error || !garageId) return { error: "Couldn't create the garage." };
   const problem = await invite(garageId as string, owner, "owner", ownerName);
   if (problem) return { error: `${name} was created, but: ${problem}` };
   return { ok: `${name} created. ${owner} has been emailed an invitation to set their password.` };
+}
+
+/** Platform admin adds a user (owner or staff) to any garage. They're emailed an invitation to set a password. */
+export async function addUser(_: FormState, form: FormData): Promise<FormState> {
+  if (!(await isAdmin())) return { error: "Only platform admins can do this." };
+  const garageId = String(form.get("garage") ?? "");
+  const address = email(form.get("email"));
+  const role = form.get("role") === "owner" ? "owner" : "staff";
+  if (!isEmail(address)) return { error: "Enter their email address." };
+  revalidatePath("/admin");
+  if (!HOSTED) {
+    const problem = demoAddUser(garageId, address, role);
+    return problem ? { error: problem } : { ok: `${address} added as ${role}. Demo only: no invitation email was sent.` };
+  }
+  const { data: g } = await adminClient().from("garages").select("id, name").eq("id", garageId).maybeSingle();
+  if (!g) return { error: "Choose a garage." };
+  const problem = await invite(g.id, address, role, String(form.get("name") ?? "").trim().slice(0, 80));
+  return problem ? { error: problem } : { ok: `${address} added to ${g.name} as ${role}, and emailed an invitation to set a password.` };
 }
 
 /** Garage owners invite colleagues to their own garage (staff accounts). */
@@ -149,8 +211,13 @@ export async function inviteColleague(_: FormState, form: FormData): Promise<For
 
 /** Platform admin opens a garage's dashboard (to support or set it up). Recorded in that garage's audit log. */
 export async function openGarage(form: FormData) {
-  const m = await requireAdmin();
   const id = String(form.get("garage") ?? "");
+  if (!HOSTED) {
+    if (!(await isAdmin()) || id !== DEMO_GARAGE_ID) throw new Error("Not allowed"); // only the sample garage has a dashboard in the demo
+    (await cookies()).set(DEMO_COOKIE, "1", demoCookie);
+    redirect("/overview");
+  }
+  const m = await requireAdmin();
   const admin = adminClient();
   const { data: g } = await admin.from("garages").select("id").eq("id", id).maybeSingle();
   if (!g) throw new Error("Garage not found");

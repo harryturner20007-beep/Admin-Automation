@@ -29,6 +29,7 @@ const validStart = (iso: string) => !!iso && Number.isFinite(Date.parse(iso));
 
 /** The quote's agreed work as lines. Older quotes hold only a description and total: one summary line. */
 export function acceptedLinesFromQuote(state: AppState, q: Quote): Charges {
+  if (q.charges) return structuredClone(q.charges);
   const vat = state.garages.find((g) => g.id === q.garageId)!.business.vatRatePercent;
   const line: Line = { id: "l1", kind: "other", description: q.customerJobDescription || q.job, quantity: 1, unitPence: vat ? netOfVat(q.amountPence, vat) : q.amountPence };
   return { lines: [line], discountPence: 0, vatRatePercent: vat };

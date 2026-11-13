@@ -5,28 +5,28 @@ This project uses DESIGN DNA for design system enforcement.
 <!-- dna:begin -->
 ## Design DNA Reference
 
-> A calm, light workspace for an independent UK garage's service desk to chase quotes and record customer decisions.
+> Revloop: a calm, light workspace for an independent UK garage's service desk to chase quotes and record customer decisions.
 
 ### Principles
 1. The queue is the work 2. Say exactly what happens (real vs simulated vs external) 3. Quiet surfaces, clear state 4. Never lose the user's place 5. Readable numbers (tabular, right-aligned)
 
 ### Colors
-Accent #0F6173 (hover #0B4C5B), selected #EAF4F6.
+Revloop brand. Accent (deep teal) #00766F (hover #005E58), selected #E6F3F2. Bright teal #00A99D: logo mark and small accents on navy only.
 | Step | Hex | Role |
 |---|---|---|
-| ink | #17212B | main text |
-| muted | #596779 | secondary text, icons |
+| navy | #0B1730 | headlines, main text, app sidebar, closing CTA |
+| muted | #475569 | secondary text, icons (slate) |
 | line | #DCE3EA | borders |
 | canvas | #F5F7FA | page bg, hover row, plate fill |
-| surface | #FFFFFF | cards, panels |
+| surface | #FFFFFF | cards, panels, tables, forms |
 
 ### Semantic Colors
-Bg: page=#F5F7FA | surface=#FFFFFF | hover=#F5F7FA | selected=#EAF4F6
-Borders: default=#DCE3EA | selected=#0F6173
-Text: primary=#17212B | secondary=#596779
-Status: success=#166534/#ECFDF3 | attention=#92400E/#FFFBEB | danger=#B42318/#FEF3F2 | neutral=#596779/#F5F7FA
-Focus: 2px #0F6173 ring, 2px offset. Selected row: #EAF4F6 + 3px #0F6173 left edge.
-Elevation: borders in-page; float shadow `0 8px 24px rgba(23,33,43,.08), 0 2px 6px rgba(23,33,43,.06)` only for drawer/sheet/toast.
+Bg: page=#F5F7FA | surface=#FFFFFF | hover=#F5F7FA | selected=#E6F3F2 | sidebar=#0B1730
+Borders: default=#DCE3EA | selected=#00766F
+Text: primary=#0B1730 | secondary=#475569
+Status: success=#166534/#ECFDF3 | attention=#92400E/#FFFBEB | danger=#B42318/#FEF3F2 | neutral=#475569/#F5F7FA
+Focus: 2px #00766F ring, 2px offset (#00A99D on navy). Selected row: #E6F3F2 + 3px #00766F left edge.
+Elevation: borders in-page; float shadow `0 8px 24px rgba(11,23,48,.08), 0 2px 6px rgba(11,23,48,.06)` only for drawer/sheet/toast.
 
 ### Typography
 Inter, ui-sans-serif, system-ui, sans-serif. Weights 400 body | 500 labels/buttons | 600 emphasis/counts | 650 h1 only.
@@ -67,7 +67,7 @@ GSAP primitives: line reveal (yPercent 100→0+fade, 420ms expo.out, 60ms word s
 Outcomes Accepted | Needs time | No reply | Declined; reminders Tomorrow | In 3 days | Choose date with date shown; inline confirmation + Undo + Next quote. Three empty states: no quotes | no matches | none due.
 
 ### Forbidden
-No gradients | No shadows on in-page cards | No second accent colour | No new icon/component library | No autoplay animation | No proportional digits in money | No "Send" label for actions that don't send in-app
+No gradients except the app backdrop glows and chart area fill | Cards: white, 16px radius, --shadow-card only (frosted window look) | No second accent colour | No new icon/component library | No autoplay animation | No proportional digits in money | No "Send" label for actions that don't send in-app
 
 ### Tech Stack
 Next.js 16 App Router, Tailwind v4 `@theme` tokens, GSAP, Animate.css, Three.js (on demand).

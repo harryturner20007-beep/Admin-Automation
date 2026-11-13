@@ -41,6 +41,7 @@ export function quoteRow(state: AppState, q: Quote): QuoteRow {
     q.status === "completed" ? { label: "Job completed", tone: "green" }
     : q.status === "booked" ? { label: "Booked", tone: "green" }
     : q.status === "declined" ? { label: "Declined", tone: "neutral" }
+    : q.status === "cancelled" ? { label: "Cancelled", tone: "neutral" }
     : q.status === "expired" ? { label: "Expired", tone: "neutral" }
     : suppressed ? { label: "Opted out", tone: "red" }
     : q.booking === "requested" ? { label: "Booking requested", tone: "amber" }

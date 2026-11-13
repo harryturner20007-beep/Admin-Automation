@@ -8,14 +8,14 @@ import { HOSTED } from "@/lib/mode";
 // Reads the session per request: never prerendered or cached.
 export const instant = false;
 
-export const metadata = { title: "Sign in · Garage desk" };
+export const metadata = { title: "Sign in · Revloop" };
 
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const p = await searchParams;
   if (!HOSTED) {
     if ((await cookies()).get(DEMO_COOKIE)) redirect("/overview"); // already signed in to the demo
     return (
-      <AuthCard title="Sign in" intro="This copy runs as a demo with sample data.">
+      <AuthCard title="Sign in to your garage" intro="This copy is a demo with sample data.">
         <DemoLoginForm />
       </AuthCard>
     );
@@ -25,7 +25,7 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const next = typeof p.next === "string" ? p.next : "/overview";
   const notice = p.expired ? "Your session ended. Sign in again to carry on." : p.link === "expired" ? "That link has expired or was already used. Ask for a new one." : undefined;
   return (
-    <AuthCard title="Sign in" intro="Your garage's quotes, jobs and invoices.">
+    <AuthCard title="Sign in to your garage" intro="Use the email address your invitation was sent to.">
       <LoginForm next={next} notice={notice} />
     </AuthCard>
   );

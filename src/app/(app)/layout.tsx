@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { DEMO_COOKIE } from "@/lib/demoAuth";
+import { DEMO_ADMIN_COOKIE, DEMO_COOKIE } from "@/lib/demoAuth";
 import { Shell } from "@/components/Shell";
 import { DemoProvider } from "@/demo/store";
 import { HOSTED } from "@/lib/mode";
@@ -11,14 +11,24 @@ import { loadWorkspace } from "@/server/workspace";
 // Without Supabase configured, the same screens run as the browser-only demo with sample data.
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   if (!HOSTED) {
-    if (!(await cookies()).get(DEMO_COOKIE)) redirect("/login"); // the demo has its own sign-in too
+    const jar = await cookies();
+    if (!jar.get(DEMO_COOKIE)) redirect("/login"); // the demo has its own sign-in too
+    const admin = !!jar.get(DEMO_ADMIN_COOKIE);
+    return (
+      <DemoProvider>
+        <Shell user={{ email: admin ? "admin" : "demo", garageName: "Riverside Garage (demo)", platformAdmin: admin, adminView: admin }}>{children}</Shell>
+      </DemoProvider>
+    );
+  }
+  const member = await currentMember();
+  if (!member && (await cookies()).get(DEMO_COOKIE)) {
+    // The free demo on the live site: sample data in the visitor's browser, nothing from any garage.
     return (
       <DemoProvider>
         <Shell user={{ email: "demo", garageName: "Riverside Garage (demo)", platformAdmin: false }}>{children}</Shell>
       </DemoProvider>
     );
   }
-  const member = await currentMember();
   if (!member) redirect("/login");
   if (!member.garageId) redirect("/admin");
   const loaded = await loadWorkspace();

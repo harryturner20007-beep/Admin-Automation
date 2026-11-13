@@ -1,6 +1,6 @@
 # Hosting and handover
 
-How to run Garage desk for real garages: one website, a private workspace per garage.
+How to run Revloop for real garages: one website, a private workspace per garage.
 Stack: Next.js 16 on **Vercel**, **Supabase** (Auth, Postgres, private Storage), Vercel Cron for reminders.
 
 Without Supabase settings the same code runs as the browser-only sales demo with sample data.
@@ -74,7 +74,7 @@ Nothing here was created for you: sign up, add payment details and keep the keys
 
 1. Invite yourself: **Supabase → Authentication → Users → Invite user**, accept the email and set a password.
 2. In the SQL editor: `insert into public.platform_admins (user_id) select id from auth.users where email = 'you@…';`
-3. Sign in and go to `/admin`. Enter the garage's name and the owner's email. They get an invitation.
+3. Sign in at `/admin/login` (the admin console opens). Enter the garage's name and the owner's email. They get an invitation.
 4. Then follow `docs/ONBOARDING.md` with the owner.
 
 ### Opening a garage's dashboard as platform admin

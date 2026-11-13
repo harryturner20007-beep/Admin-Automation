@@ -2,27 +2,55 @@
 
 import Link from "next/link";
 import { useActionState, useState, type ReactNode } from "react";
-import { createGarageAndInvite, demoSignIn, inviteColleague, requestPasswordReset, setPassword, signIn, type FormState } from "@/server/auth";
+import { addUser, adminSignIn, createGarageAndInvite, demoSignIn, inviteColleague, requestPasswordReset, setPassword, signIn, type FormState } from "@/server/auth";
 import { connectSmsNumber } from "@/server/sms";
+import { Logo } from "./Logo";
 import { Button, Field, inputClass } from "./ui";
 
 const focusRing = "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";
 
-export function AuthCard({ title, intro, children }: { title: string; intro?: ReactNode; children: ReactNode }) {
+const SIDES = {
+  garage: {
+    title: "Quotes, jobs and invoices for independent UK garages.",
+    text: "Follow-ups by text, bookings, invoices and payment reminders in one workspace for your service desk.",
+    switchTo: { href: "/admin/login", label: "Admin sign-in" },
+  },
+  admin: {
+    title: "Platform administration",
+    text: "Set up garages, add their staff and open a garage's dashboard to help. Each visit is recorded in that garage's audit log.",
+    switchTo: { href: "/login", label: "Garage sign-in" },
+  },
+};
+
+/** The sign-in screens: form on the left, a plain product panel on the right from 1024px. */
+export function AuthCard({ title, intro, children, side = "garage" }: { title: string; intro?: ReactNode; children: ReactNode; side?: keyof typeof SIDES }) {
+  const s = SIDES[side];
   return (
-    <main className="grid min-h-screen place-items-center bg-canvas px-4 py-10 font-sans">
-      <div className="w-full max-w-sm">
-        <p className="mb-6 flex items-center gap-2 text-sm font-semibold text-text">
-          <span aria-hidden className="grid h-8 w-8 place-items-center rounded-lg bg-accent text-white">G</span>
-          Garage desk
+    <div className="min-h-screen bg-white font-sans text-text lg:grid lg:grid-cols-2">
+      <main className="flex min-h-screen flex-col px-4 py-6 md:px-12 md:py-8">
+        <p className="flex items-center gap-3 text-base">
+          <Logo className="h-7 w-auto" />
+          {side === "admin" && <span className="text-muted">Admin</span>}
         </p>
-        <div className="rounded-xl border border-line bg-white p-6">
-          <h1 className="text-[28px] leading-tight font-[650] text-text">{title}</h1>
-          {intro && <div className="mt-1 text-sm text-muted">{intro}</div>}
-          <div className="mt-6">{children}</div>
+        <div className="flex flex-1 items-center py-10">
+          <div className="mx-auto w-full max-w-[400px]">
+            <h1 className="text-[28px] leading-tight font-[650]">{title}</h1>
+            {intro && <div className="mt-2 text-sm text-muted">{intro}</div>}
+            <div className="mt-8">{children}</div>
+          </div>
         </div>
-      </div>
-    </main>
+        <footer className="flex flex-wrap justify-between gap-2 text-xs text-muted">
+          <span>Revloop for independent UK garages</span>
+          <Link href={s.switchTo.href} className={`underline-offset-2 hover:text-text hover:underline ${focusRing}`}>{s.switchTo.label}</Link>
+        </footer>
+      </main>
+      <aside className="hidden border-l border-line bg-canvas lg:flex lg:flex-col lg:justify-end lg:p-12">
+        <div className="max-w-md">
+          <h2 className="text-lg font-semibold">{s.title}</h2>
+          <p className="mt-2 text-sm text-muted">{s.text}</p>
+        </div>
+      </aside>
+    </div>
   );
 }
 
@@ -64,7 +92,7 @@ export function LoginForm({ next, notice }: { next: string; notice?: string }) {
         </span>
       </label>
       <Submit pending={pending} busy="Signing in…">Sign in</Submit>
-      <p className="text-center text-sm">
+      <p className="text-sm">
         <Link href="/forgot-password" className={`font-medium text-accent underline underline-offset-2 hover:text-accent-hover ${focusRing}`}>Forgotten your password?</Link>
       </p>
     </form>
@@ -84,7 +112,55 @@ export function DemoLoginForm() {
         <input id="password" name="password" type="password" autoComplete="current-password" required className={inputClass()} />
       </Field>
       <Submit pending={pending} busy="Signing in…">Sign in</Submit>
-      <p className="text-center text-sm text-muted">Demo login: use demo for both username and password.</p>
+      <p className="text-sm text-muted">Demo: use <b className="font-medium text-text">demo</b> for both username and password.</p>
+    </form>
+  );
+}
+
+/** Platform admin sign-in. Demo: admin / admin. Hosted: an email account listed in platform_admins. */
+export function AdminLoginForm({ demo }: { demo: boolean }) {
+  const [state, action, pending] = useActionState(adminSignIn, undefined);
+  return (
+    <form action={action} className="space-y-4">
+      <Message state={state} />
+      {demo ? (
+        <Field id="username" label="Username">
+          <input id="username" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} required className={inputClass()} />
+        </Field>
+      ) : (
+        <Field id="email" label="Email address">
+          <input id="email" name="email" type="email" autoComplete="username" required className={inputClass()} />
+        </Field>
+      )}
+      <Field id="password" label="Password">
+        <input id="password" name="password" type="password" autoComplete="current-password" required className={inputClass()} />
+      </Field>
+      <Submit pending={pending} busy="Signing in…">Sign in</Submit>
+      {demo && <p className="text-sm text-muted">Demo: use <b className="font-medium text-text">admin</b> for both username and password.</p>}
+    </form>
+  );
+}
+
+/** Platform admin: add an owner or staff member to any garage. */
+export function AddUserForm({ garages }: { garages: { id: string; name: string }[] }) {
+  const [state, action, pending] = useActionState(addUser, undefined);
+  return (
+    <form action={action} className="space-y-4">
+      <Message state={state} />
+      <Field id="user-garage" label="Garage">
+        <select id="user-garage" name="garage" required className={inputClass()}>
+          {garages.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+        </select>
+      </Field>
+      <Field id="user-name" label="Name" optional><input id="user-name" name="name" maxLength={80} className={inputClass()} /></Field>
+      <Field id="user-email" label="Email"><input id="user-email" name="email" type="email" required className={inputClass()} /></Field>
+      <Field id="user-role" label="Role">
+        <select id="user-role" name="role" defaultValue="staff" className={inputClass()}>
+          <option value="staff">Staff</option>
+          <option value="owner">Owner</option>
+        </select>
+      </Field>
+      <Submit pending={pending} busy="Adding…">Add user</Submit>
     </form>
   );
 }
@@ -98,7 +174,7 @@ export function ForgotForm() {
         <input id="email" name="email" type="email" autoComplete="username" required className={inputClass()} />
       </Field>
       <Submit pending={pending} busy="Sending…">Email me a reset link</Submit>
-      <p className="text-center text-sm"><Link href="/login" className={`font-medium text-accent underline underline-offset-2 ${focusRing}`}>Back to sign in</Link></p>
+      <p className="text-sm"><Link href="/login" className={`font-medium text-accent underline underline-offset-2 ${focusRing}`}>Back to sign in</Link></p>
     </form>
   );
 }
@@ -127,8 +203,8 @@ export function CreateGarageForm() {
       <Message state={state} />
       <Field id="garage" label="Garage name"><input id="garage" name="garage" required maxLength={120} className={inputClass()} /></Field>
       <Field id="name" label="Owner's name" optional><input id="name" name="name" maxLength={80} className={inputClass()} /></Field>
-      <Field id="email" label="Owner's email" hint="They get an invitation to set their password. The link expires (Supabase email link expiry)."><input id="email" name="email" type="email" required className={inputClass()} /></Field>
-      <Submit pending={pending} busy="Creating…">Create garage and invite owner</Submit>
+      <Field id="email" label="Owner's email" hint="They're emailed an invitation to set their password."><input id="email" name="email" type="email" required className={inputClass()} /></Field>
+      <Submit pending={pending} busy="Creating…">Create garage</Submit>
       {state?.ok && <Button type="button" className="w-full" onClick={() => setKey((k) => k + 1)}>Add another garage</Button>}
     </form>
   );

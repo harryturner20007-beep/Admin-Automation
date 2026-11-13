@@ -1,33 +1,36 @@
 @import "tailwindcss";
 
-/* Workshop console palette: graphite + cool steel, one signal-blue accent. */
+/* Revloop palette. Every colour in the app comes from these tokens. */
 @theme inline {
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   --font-display: var(--font-archivo);
   --breakpoint-desk: 75rem; /* 1200px: sidebar + side-by-side detail panel */
-  /* Quotes workspace design DNA (.design/primitives.md) */
-  --color-accent: #0f6173;
-  --color-accent-hover: #0b4c5b;
-  --color-canvas: #f5f7fa;
+  --color-navy: #0b1730; /* ink navy: headlines, sidebar, closing CTA */
+  --color-brand: #00a99d; /* bright teal: logo mark and small accents on navy */
+  --color-accent: #00766f; /* deep teal: primary buttons, active controls, focus */
+  --color-accent-hover: #005e58;
+  --color-canvas: #f5f7fa; /* cool white: page and workspace */
   --color-line: #dce3ea;
-  --color-text: #17212b;
-  --color-muted: #596779;
-  --color-selected: #eaf4f6;
+  --color-text: #0b1730;
+  --color-muted: #475569; /* slate: supporting copy */
+  --color-selected: #e6f3f2;
   --color-success: #166534;
   --color-success-bg: #ecfdf3;
   --color-attention: #92400e;
   --color-attention-bg: #fffbeb;
   --color-danger: #b42318;
   --color-danger-bg: #fef3f2;
-  --shadow-float: 0 8px 24px rgb(23 33 43 / 0.08), 0 2px 6px rgb(23 33 43 / 0.06);
-  --color-graphite: #1d2228;
-  --color-graphite-2: #2a3139;
-  --color-steel: #8c97a3;
-  --color-steel-line: #d9dee4;
-  --color-work: #f2f4f6;
-  --color-ink: #13171b;
-  --color-signal: #1f6bff;
-  --color-signal-deep: #1554d1;
+  --shadow-float: 0 8px 24px rgb(11 23 48 / 0.08), 0 2px 6px rgb(11 23 48 / 0.06);
+  --shadow-card: 0 1px 2px rgb(11 23 48 / 0.05), 0 6px 20px rgb(11 23 48 / 0.06); /* white cards on the frosted window */
+  /* Older names still used by a few screens, mapped onto the palette above. */
+  --color-graphite: #0b1730;
+  --color-graphite-2: #16243f;
+  --color-steel: #94a3b8;
+  --color-steel-line: #dce3ea;
+  --color-work: #f5f7fa;
+  --color-ink: #0b1730;
+  --color-signal: #00766f;
+  --color-signal-deep: #005e58;
 }
 
 /* Light-only so the demo looks the same on every laptop it is shown on. */
@@ -39,6 +42,31 @@ body {
   background: var(--color-canvas);
   color: var(--color-text);
   font-variant-numeric: lining-nums;
+}
+
+/* App window over a dusk backdrop (the dashboard's look). Glows in brand teal and a warm horizon, on navy. */
+.app-backdrop {
+  background-color: #0b1730;
+  background-image:
+    radial-gradient(60% 50% at 12% 8%, rgb(0 169 157 / 0.45), transparent 70%),
+    radial-gradient(55% 45% at 88% 92%, rgb(217 119 54 / 0.45), transparent 70%),
+    radial-gradient(70% 60% at 60% 40%, rgb(37 56 99 / 0.9), transparent 75%);
+  background-attachment: fixed;
+}
+/* Frosted panels. Kept off any element that contains fixed drawers (backdrop-filter would trap them). */
+.glass-dark {
+  background: rgb(11 23 48 / 0.55);
+  backdrop-filter: blur(24px) saturate(140%);
+  -webkit-backdrop-filter: blur(24px) saturate(140%);
+}
+.glass-light {
+  background: rgb(240 244 248 / 0.72);
+  backdrop-filter: blur(32px) saturate(170%);
+  -webkit-backdrop-filter: blur(32px) saturate(170%);
+}
+@media (prefers-reduced-transparency: reduce) {
+  .glass-dark { background: #0b1730; backdrop-filter: none; }
+  .glass-light { background: #f5f7fa; backdrop-filter: none; }
 }
 
 /* Motion (.design/primitives.md). GSAP drives the rest; these are the CSS-only pieces.

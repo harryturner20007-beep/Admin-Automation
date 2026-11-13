@@ -1,6 +1,7 @@
 // Manual quote intake: validation, normalisation and creation.
 import { log, newId } from "./engine";
-import type { AppState, Quote } from "./types";
+import { chargeErrors, totals } from "./money";
+import type { AppState, CatalogueItem, Charges, Quote } from "./types";
 
 /** UK mobile (07… or +44 7…) to E.164, or null. Spaces, dashes, dots and brackets are ignored. */
 export function normaliseUkMobile(input: string): string | null {
@@ -45,7 +46,8 @@ export type QuoteInput = {
   reference: string; // blank = generate
   job: string;
   customerJob?: string; // optional customer-facing wording for texts
-  price: string; // pounds, as typed
+  price: string; // pounds, as typed; ignored when charges are given
+  charges?: Charges; // itemised work; the quoted price is then its total
   vehicle: string;
   registration: string;
   sentAt: string; // ISO UTC
@@ -74,7 +76,11 @@ export function validateQuoteInput(state: AppState, garageId: string, input: Quo
     } else if (input.reference.trim().length > 30) e.reference = "Keep the reference under 30 characters";
   }
   if (!input.job.trim()) e.job = "Describe the job";
-  if (!input.price.trim()) e.price = "Enter the quoted price";
+  if (input.charges) {
+    const problems = chargeErrors(input.charges);
+    if (problems.length) e.charges = problems[0];
+    else if (totals(input.charges).totalPence <= 0) e.charges = "The quote total must be more than £0";
+  } else if (!input.price.trim()) e.price = "Enter the quoted price";
   else if (parsePoundsToPence(input.price) === null) e.price = "Enter an amount in pounds, e.g. 340 or 340.50";
   const sent = Date.parse(input.sentAt);
   if (!input.sentAt || Number.isNaN(sent)) e.sentAt = "Enter when the quote was sent";
@@ -97,7 +103,8 @@ export function addQuote(state: AppState, garageId: string, input: QuoteInput, s
     registration: input.registration.trim() ? normaliseRegistration(input.registration) : undefined,
     job: input.job.trim(),
     customerJobDescription: input.customerJob?.trim() || undefined,
-    amountPence: parsePoundsToPence(input.price)!,
+    amountPence: input.charges ? totals(input.charges).totalPence : parsePoundsToPence(input.price)!,
+    charges: input.charges ? structuredClone(input.charges) : undefined,
     quoteSentAt: new Date(input.sentAt).toISOString(),
     status: "open",
     statusConfirmedAt: state.now, // staff entering it now is a fresh "still open" confirmation
@@ -113,3 +120,46 @@ export function addQuote(state: AppState, garageId: string, input: QuoteInput, s
   return quote;
 }
 
+
+/** Change an open quote's itemised work. The quoted price becomes the new total. Throws with a staff-facing message. */
+export function updateQuoteCharges(state: AppState, quoteId: string, charges: Charges, staffName: string): void {
+  const q = state.quotes.find((x) => x.id === quoteId);
+  if (!q) throw new Error("Quote not found");
+  if (q.status !== "open") throw new Error("Only open quotes can be changed");
+  const problem = chargeErrors(charges)[0] ?? (totals(charges).totalPence <= 0 ? "The quote total must be more than £0" : undefined);
+  if (problem) throw new Error(problem);
+  const before = q.amountPence;
+  q.charges = structuredClone(charges);
+  q.amountPence = totals(charges).totalPence;
+  log(state, q.garageId, "quote_work_changed", `${staffName} changed the work on ${q.sourceQuoteId}: £${(before / 100).toFixed(2)} → £${(q.amountPence / 100).toFixed(2)}`, q.id);
+}
+
+/** The last day the quote is valid (UK date) and whole days left from now; negative once it has run out. */
+export function quoteValidity(q: Quote, validityDays: number, nowIso: string): { until: string; daysLeft: number } {
+  const DAY = 86_400_000;
+  const end = Date.parse(q.quoteSentAt) + validityDays * DAY;
+  return { until: new Date(end).toISOString(), daysLeft: Math.ceil((end - Date.parse(nowIso)) / DAY) };
+}
+
+// ---------- saved services (catalogue) ----------
+
+export function catalogueErrors(item: { description: string; unitPence: number }): string | null {
+  if (!item.description.trim()) return "Describe the item";
+  if (item.description.trim().length > 120) return "Keep the description under 120 characters";
+  if (!Number.isInteger(item.unitPence) || item.unitPence < 0) return "Enter a price of £0 or more";
+  return null;
+}
+
+export function addCatalogueItem(state: AppState, garageId: string, item: Omit<CatalogueItem, "id">): CatalogueItem {
+  const problem = catalogueErrors(item);
+  if (problem) throw new Error(problem);
+  const g = state.garages.find((x) => x.id === garageId)!;
+  const saved: CatalogueItem = { id: newId(state, "cat"), kind: item.kind, description: item.description.trim(), unitPence: item.unitPence };
+  g.catalogue = [...(g.catalogue ?? []), saved];
+  return saved;
+}
+
+export function removeCatalogueItem(state: AppState, garageId: string, itemId: string): void {
+  const g = state.garages.find((x) => x.id === garageId)!;
+  g.catalogue = (g.catalogue ?? []).filter((c) => c.id !== itemId);
+}

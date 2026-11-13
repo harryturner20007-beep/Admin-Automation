@@ -6,6 +6,8 @@ import { fromLondonInput, toLondonInput } from "@/domain/time";
 import type { Quote } from "@/domain/types";
 import { useAction, useDemo } from "@/demo/store";
 import { Rise } from "./motion";
+import { SavedServicePicker } from "./SavedServices";
+import { ChargesEditor, chargesFromDraft, type ChargesDraft } from "./workflow";
 import { Button, Field, Icon, InlineFeedback, inputClass, PlateLabel } from "./ui";
 
 type Form = Omit<QuoteInput, "sentAt"> & { sentLocal: string | null }; // null = "now" (follows the clock until edited)
@@ -32,8 +34,14 @@ export function AddQuoteDrawer({ open, onClose, onSaved, onShowExisting }: {
   const save = useAction();
   const first = useRef<HTMLInputElement>(null);
 
+  const vat = state.garages.find((g) => g.id === garageId)!.business.vatRatePercent;
+  const emptyDraft = (): ChargesDraft => ({ rows: [{ id: "n0", kind: "labour", description: "", quantity: "1", unit: "" }], discount: "", vat });
+  const [itemise, setItemise] = useState(false);
+  const [draft, setDraft] = useState<ChargesDraft>(emptyDraft);
+
   const sentLocal = form.sentLocal ?? toLondonInput(state.now);
-  const toInput = (f: Form): QuoteInput => ({ ...f, sentAt: fromLondonInput(f.sentLocal ?? toLondonInput(state.now)) });
+  const toInput = (f: Form, it = itemise, d = draft): QuoteInput => ({ ...f, sentAt: fromLondonInput(f.sentLocal ?? toLondonInput(state.now)), charges: it ? chargesFromDraft(d) : undefined });
+  const recheck = (it: boolean, d: ChargesDraft) => tried && setErrors(validateQuoteInput(state, garageId, toInput(form, it, d)));
 
   useEffect(() => {
     if (!open) return;
@@ -58,12 +66,14 @@ export function AddQuoteDrawer({ open, onClose, onSaved, onShowExisting }: {
         setErrors(errs);
         if (Object.keys(errs).length) {
           // Take staff straight to the first problem (it may be below the fold).
-          const firstBad = (["customerName", "phone", "job", "price", "reference", "sentAt", "evidenceRef"] as const).find((k) => errs[k]);
+          const firstBad = (["customerName", "phone", "job", "price", "charges", "reference", "sentAt", "evidenceRef"] as const).find((k) => errs[k]);
           requestAnimationFrame(() => document.getElementById(`aq-${firstBad}`)?.focus());
           throw new QuoteValidationError(errs);
         }
         const q = addQuote(toInput(form));
         setForm(EMPTY);
+        setDraft(emptyDraft());
+        setItemise(false);
         setErrors({});
         setTried(false);
         onSaved(q);
@@ -142,7 +152,28 @@ export function AddQuoteDrawer({ open, onClose, onSaved, onShowExisting }: {
               />
             </Field>
             {field("customerJob", "Wording for texts", { optional: true, maxLength: 80, placeholder: "front brake pads", hint: "Use this if the description has internal notes or shorthand. Texts say this instead." })}
-            <Field id="aq-price" label="Quoted price" hint="Total including VAT, as quoted to the customer." error={errors.price}>
+            <div role="radiogroup" aria-label="How to price the quote" className="grid grid-cols-2 gap-2">
+              {([[false, "Total price"], [true, "Labour and parts"]] as const).map(([v, label]) => (
+                <button
+                  key={label}
+                  type="button"
+                  role="radio"
+                  aria-checked={itemise === v}
+                  onClick={() => { setItemise(v); recheck(v, draft); }}
+                  className={`min-h-11 rounded-lg border px-3 text-sm font-medium focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${itemise === v ? "border-accent bg-selected text-accent" : "border-line bg-white text-text hover:bg-canvas"}`}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+            {itemise ? (
+              <div id="aq-charges" tabIndex={-1} className="space-y-3">
+                <SavedServicePicker id="aq-saved" value={draft} onChange={(d) => { setDraft(d); recheck(true, d); }} />
+                <ChargesEditor idPrefix="aq-line" value={draft} onChange={(d) => { setDraft(d); recheck(true, d); }} />
+                {errors.charges && <p id="aq-charges-error" role="alert" className="text-xs font-medium text-danger">{errors.charges}</p>}
+              </div>
+            ) : (
+              <Field id="aq-price" label="Quoted price" hint="Total including VAT, as quoted to the customer." error={errors.price}>
               <div className="relative">
                 <span aria-hidden className="pointer-events-none absolute top-1/2 left-3 -translate-y-1/2 text-sm text-slate-500">£</span>
                 <input
@@ -157,6 +188,7 @@ export function AddQuoteDrawer({ open, onClose, onSaved, onShowExisting }: {
                 />
               </div>
             </Field>
+            )}
             <div>
               {field("reference", "Quote reference", { optional: true, placeholder: generateQuoteRef(state, garageId), hint: `Leave blank to use ${generateQuoteRef(state, garageId)}.` })}
               {errors.duplicateOf && (

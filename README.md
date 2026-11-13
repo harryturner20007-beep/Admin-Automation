@@ -1,4 +1,4 @@
-# Garage desk
+# Revloop
 
 Quotes, jobs, invoices and payment chasing for independent UK garages, as one connected workflow:
 **quote → booked job → completed job → invoice → payment / chasing**.

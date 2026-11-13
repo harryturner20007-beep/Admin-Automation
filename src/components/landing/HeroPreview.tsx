@@ -25,7 +25,11 @@ const STEPS = [
 /** A cropped view of the quote and its follow-ups, without the dashboard around it. */
 export function HeroPreview() {
   return (
-    <figure aria-label="Example of a quote moving through follow-ups" className="mx-auto max-w-4xl rounded-2xl border border-line bg-selected p-2 md:p-3">
+    <figure aria-label="Example of a quote moving through follow-ups" className="mx-auto max-w-4xl rounded-2xl bg-navy p-2 md:p-3">
+      <figcaption className="flex items-center justify-between gap-3 px-2 pt-1 pb-3 text-xs text-white/75 md:px-3">
+        <span className="font-semibold text-white">Quotes</span>
+        <span>Staff needed · sample data</span>
+      </figcaption>
       <div className="grid overflow-hidden rounded-xl border border-line bg-white md:grid-cols-[5fr_7fr]">
         <div className="border-b border-line p-5 md:border-r md:border-b-0 md:p-6">
           <div className="flex items-center justify-between gap-3">

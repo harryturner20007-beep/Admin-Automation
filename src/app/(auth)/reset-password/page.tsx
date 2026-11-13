@@ -5,7 +5,7 @@ import { userClient } from "@/server/supabase";
 // Reads the session per request: never prerendered or cached.
 export const instant = false;
 
-export const metadata = { title: "Set your password · Garage desk" };
+export const metadata = { title: "Set your password · Revloop" };
 
 /** Reached from an invitation or reset email (which signs the user in), or from Settings. */
 export default async function ResetPasswordPage({ searchParams }: PageProps<"/reset-password">) {

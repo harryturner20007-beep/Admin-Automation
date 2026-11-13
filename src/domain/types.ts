@@ -29,7 +29,11 @@ export type Garage = {
   lastCheckAt?: string; // last follow-up check that covered this garage
   synthetic: boolean;
   business: BusinessDetails; // printed on invoices; edited by the garage owner in Settings
+  catalogue?: CatalogueItem[]; // saved labour, parts and services for building quotes quickly
 };
+
+/** A saved line the garage quotes often, e.g. "Labour, one hour" at £65. Price is ex VAT. */
+export type CatalogueItem = { id: string; kind: LineKind; description: string; unitPence: number };
 
 /** What a garage prints on its invoices (GOV.UK "Invoices: what they must include", VAT Notice 700 s.16). */
 export type BusinessDetails = {
@@ -97,7 +101,7 @@ export type InvoiceContent = Charges & {
 
 export type Totals = { subtotalPence: number; discountPence: number; netPence: number; vatPence: number; totalPence: number };
 
-export type QuoteStatus = "open" | "booked" | "declined" | "completed" | "expired";
+export type QuoteStatus = "open" | "booked" | "declined" | "completed" | "expired" | "cancelled";
 export type BookingState = "none" | "requested" | "confirmed";
 
 export type Quote = {
@@ -114,6 +118,7 @@ export type Quote = {
   reminderDate?: string; // "YYYY-MM-DD" (UK date) staff chose to chase again; holds automatic follow-ups until then
   contactPendingAt?: string; // staff opened an external app to contact the customer; outcome not yet recorded
   amountPence: number; // quoted price, integer pence; completed value is jobValuePence
+  charges?: Charges; // itemised labour and parts; when set, amountPence is their total
   quoteSentAt: string; // when the garage sent the quote (ISO, UTC)
   status: QuoteStatus;
   statusConfirmedAt: string; // last time staff or a feed confirmed the status
@@ -127,6 +132,7 @@ export type Quote = {
   bookedAt?: string;
   bookedFor?: string; // "YYYY-MM-DD" (UK date) the job is booked in for, once staff set it
   completedAt?: string;
+  cancelledAt?: string; // staff moved the quote to Cancelled; it can be restored
   jobValuePence?: number;
   offeredSlots?: string[]; // booking times (ISO) staff offered by text; one click books the one the customer picks
   email?: string; // customer billing details, copied onto the job's invoice

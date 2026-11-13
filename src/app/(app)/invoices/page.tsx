@@ -3,7 +3,7 @@ import { InvoicesView } from "@/components/InvoicesView";
 
 export const instant = false;
 
-export const metadata = { title: "Invoices · Garage desk" };
+export const metadata = { title: "Invoices · Revloop" };
 
 export default function InvoicesPage() {
   return (

@@ -4,7 +4,7 @@ import { ChatsView } from "@/components/ChatsView";
 // Revisit when Phase 2 moves data to the server.
 export const instant = false;
 
-export const metadata = { title: "Chats · Garage desk" };
+export const metadata = { title: "Chats · Revloop" };
 
 export default function ChatsPage() {
   return <ChatsView />;

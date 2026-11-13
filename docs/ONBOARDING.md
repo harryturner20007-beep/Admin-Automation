@@ -2,7 +2,7 @@
 
 ## First garage: about 15 minutes with the owner
 
-1. **You (platform admin)**: sign in, open `/admin`, enter the garage's name and the owner's email, then
+1. **You (platform admin)**: sign in at `/admin/login`, then in the console enter the garage's name and the owner's email, then
    **Create garage and invite owner**.
 2. **Owner**: opens the invitation email within 24 hours, sets a password (10+ characters) and lands on
    **Overview**. Tick **Keep me signed in on this device** on their own computer only.

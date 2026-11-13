@@ -36,8 +36,6 @@ export function ResultsView() {
   const [period, setPeriod] = useState<Period>("30d");
   const range = rangeFor(period, state.now);
   const r = computeResults(state, garageId, range);
-  const inRange = (at?: string) => !!at && (!range.from || at >= range.from) && (!range.to || at < range.to);
-  const events = state.events.filter((e) => e.garageId === garageId && inRange(e.at)).slice().reverse();
   const rows = state.quotes.filter((q) => q.garageId === garageId).map((q) => quoteRow(state, q)).reverse();
   const periodLabel = PERIODS.find((p) => p.id === period)!.label.toLowerCase();
 
@@ -51,7 +49,7 @@ export function ResultsView() {
 
   return (
     <>
-      <section aria-labelledby="results-title" className="bg-graphite text-white">
+      <section aria-labelledby="results-title" className="mx-4 mt-4 rounded-2xl bg-navy/90 text-white shadow-card md:mx-8">
         <div className="mx-auto max-w-6xl px-4 pt-6 pb-7 sm:pt-10">
           <div className="flex flex-wrap items-center gap-3">
             <span className="rounded border border-dashed border-white/35 px-1.5 py-0.5 text-xs text-white">Demo data</span>
@@ -97,7 +95,7 @@ export function ResultsView() {
           ))}
         </dl>
 
-        <div className="mt-8 grid gap-6 lg:grid-cols-2">
+        <div className="mt-8">
           <section aria-labelledby="outcomes-title">
             <h2 id="outcomes-title" className="mb-2 text-base font-semibold text-ink [font-stretch:110%]">Quote outcomes</h2>
             <ul className="overflow-hidden rounded-md border border-steel-line bg-white">
@@ -115,23 +113,6 @@ export function ResultsView() {
                 </li>
               ))}
             </ul>
-          </section>
-          <section aria-labelledby="log-title">
-            <h2 id="log-title" className="mb-2 text-base font-semibold text-ink [font-stretch:110%]">Activity, {periodLabel}</h2>
-            <div className="max-h-[440px] overflow-y-auto rounded-md border border-steel-line bg-white">
-              {events.length === 0 ? (
-                <p className="px-4 py-6 text-sm text-slate-600">Nothing happened in this period. Try a longer one.</p>
-              ) : (
-                <ol className="divide-y divide-steel-line/70">
-                  {events.map((e) => (
-                    <li key={e.id} className="grid grid-cols-[6.5rem_1fr] gap-3 px-4 py-2.5 text-sm">
-                      <span className="text-xs text-slate-500 tabular-nums">{formatLondon(e.at)}</span>
-                      <span className="text-slate-700">{e.text}</span>
-                    </li>
-                  ))}
-                </ol>
-              )}
-            </div>
           </section>
         </div>
 

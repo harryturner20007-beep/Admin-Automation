@@ -119,8 +119,8 @@ function Vehicle() {
     return (
       <svg role="img" aria-label="Car illustration" viewBox="0 0 120 50" className="mx-auto h-40 w-auto text-accent">
         <path d="M10 34h100v-8l-16-4-12-10H44L30 22l-20 4z" fill="currentColor" opacity="0.9" />
-        <circle cx="34" cy="36" r="7" fill="#17212b" />
-        <circle cx="88" cy="36" r="7" fill="#17212b" />
+        <circle cx="34" cy="36" r="7" fill="currentColor" className="text-navy" />
+        <circle cx="88" cy="36" r="7" fill="currentColor" className="text-navy" />
       </svg>
     );
   }

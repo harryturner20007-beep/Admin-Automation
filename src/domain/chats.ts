@@ -39,3 +39,27 @@ export function chatThreads(state: AppState, garageId: string): Thread[] {
     })
     .sort((a, b) => Date.parse(at(b.last)) - Date.parse(at(a.last)));
 }
+
+const compact = (t: string) => t.toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/**
+ * Everything a customer can be found by: names, phone (07… and +44 forms), quote refs, number plates,
+ * vehicles, job text, job numbers and invoice numbers, across all their quotes.
+ */
+export function searchText(state: AppState, garageId: string, phone: string): string {
+  const quotes = state.quotes.filter((q) => q.garageId === garageId && q.phone === phone);
+  const ids = new Set(quotes.map((q) => q.id));
+  const parts = [phone, phone.startsWith("+44") ? `0${phone.slice(3)}` : phone];
+  for (const q of quotes) parts.push(q.customerName, q.sourceQuoteId, q.registration ?? "", q.vehicle, q.job, q.customerJobDescription ?? "");
+  for (const j of state.jobs) if (ids.has(j.quoteId)) parts.push(j.number);
+  for (const i of state.invoices) if (ids.has(i.quoteId)) parts.push(i.number, i.content?.jobNumber ?? "", i.content?.customer.name ?? "");
+  return parts.join(" ");
+}
+
+/** Every word typed must appear somewhere in the text (ignoring case, spaces and punctuation, so "ob21 ksp" finds OB21KSP). */
+export function matchesSearch(text: string, query: string): boolean {
+  const tokens = query.toLowerCase().split(/\s+/).map(compact).filter(Boolean);
+  if (!tokens.length) return true;
+  const haystack = compact(text);
+  return tokens.every((t) => haystack.includes(t));
+}

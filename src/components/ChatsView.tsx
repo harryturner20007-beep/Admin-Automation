@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { formatPounds, reconcileSend, resolveTask } from "@/domain/engine";
-import { chatThreads, type Thread } from "@/domain/chats";
+import { chatThreads, matchesSearch, searchText, type Thread } from "@/domain/chats";
 import { messageLabel } from "@/domain/invoices";
 import { deliveryLabel } from "@/domain/sms";
 import { formatLondon } from "@/domain/time";
@@ -258,14 +258,24 @@ function SimulateInbound() {
 export function ChatsView() {
   const { state, garageId, act, hosted } = useDemo();
   const [selected, setSelected] = useState<string | null>(() => queuedReply ?? (window.location.hash.slice(1) || null));
+  const [search, setSearch] = useState("");
   const tasks = state.tasks.filter((t) => t.garageId === garageId);
+  const taskMatches = (t: StaffTask) => {
+    const phones = new Set(t.quoteIds.map((id) => state.quotes.find((x) => x.id === id)?.phone).filter((p): p is string => !!p));
+    const inbound = t.messageId ? state.messages.find((m) => m.id === t.messageId) : undefined;
+    if (inbound?.direction === "inbound") phones.add(inbound.fromPhone);
+    return matchesSearch([...phones].map((p) => searchText(state, garageId, p)).join(" ") + " " + t.summary + " " + (inbound?.body ?? ""), search);
+  };
   // Newest first; reading one doesn't re-sort the list under the cursor.
-  const open = tasks.filter((t) => t.status === "open").sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
-  const handled = tasks.filter((t) => t.status === "resolved").sort((a, b) => Date.parse(b.resolvedAt!) - Date.parse(a.resolvedAt!));
+  const open = tasks.filter((t) => t.status === "open" && taskMatches(t)).sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+  const handled = tasks.filter((t) => t.status === "resolved" && taskMatches(t)).sort((a, b) => Date.parse(b.resolvedAt!) - Date.parse(a.resolvedAt!));
   const unread = open.filter((t) => !t.readAt).length;
   const paused = state.quotes.filter((q) => q.garageId === garageId && q.status === "open" && q.unresolvedReply).length;
-  const threads = chatThreads(state, garageId).filter((th) => !th.hasOpenTask); // threads with a reply waiting are in the list above
-  const currentThread = selected?.startsWith("thread:") ? threads.find((th) => `thread:${th.phone}` === selected) : undefined;
+  const allThreads = chatThreads(state, garageId).filter((th) => !th.hasOpenTask); // threads with a reply waiting are in the list above
+  const threads = allThreads.filter((th) => matchesSearch(`${searchText(state, garageId, th.phone)} ${th.messages.map((m) => m.body).join(" ")}`, search));
+  const searching = search.trim() !== "";
+  const nothingFound = searching && !open.length && !threads.length && !handled.length;
+  const currentThread = selected?.startsWith("thread:") ? allThreads.find((th) => `thread:${th.phone}` === selected) : undefined;
   const current = tasks.find((t) => t.id === selected);
 
   const select = (id: string) => {
@@ -312,7 +322,7 @@ export function ChatsView() {
 
   return (
     <>
-      <section aria-labelledby="replies-title" className="bg-graphite text-white">
+      <section aria-labelledby="replies-title" className="mx-4 mt-4 rounded-2xl bg-navy/90 text-white shadow-card md:mx-8">
         <div className="mx-auto max-w-6xl px-4 pt-6 pb-7 sm:pt-10">
           <h1 id="replies-title" className="text-[clamp(2rem,5vw,3.5rem)] leading-[0.95] font-extrabold tracking-[-0.02em] [font-stretch:125%]">
             {open.length ? `${open.length} ${open.length === 1 ? "chat needs" : "chats need"} a person` : "Chats"}
@@ -327,7 +337,31 @@ export function ChatsView() {
         <div className="grid min-h-[560px] grid-cols-[minmax(0,1fr)] overflow-hidden border-steel-line bg-white sm:rounded-md sm:border lg:grid-cols-[360px_minmax(0,1fr)]">
           {/* List: always on desktop; on phones only when nothing is open (drill-down). */}
           <nav aria-label="Conversations" className={`border-steel-line/70 lg:border-r ${current || currentThread ? "hidden lg:block" : ""}`}>
-            {open.length === 0 && <p className="px-4 py-6 text-sm text-slate-600">No customer is waiting for an answer. When one texts back, it lands here and their follow-ups pause.</p>}
+            <form role="search" onSubmit={(e) => e.preventDefault()} className="border-b border-steel-line/70 p-3">
+              <label htmlFor="chat-search" className="sr-only">Search chats</label>
+              <div className="relative">
+                <Icon name="search" className="pointer-events-none absolute top-1/2 left-3 h-4 w-4 -translate-y-1/2 text-slate-500" />
+                <input
+                  id="chat-search"
+                  type="search"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Name, number, plate, quote or job ref"
+                  autoComplete="off"
+                  className={`${inputClass()} pl-9`}
+                />
+              </div>
+              <p role="status" aria-live="polite" className="mt-1.5 min-h-4 text-xs text-slate-600">
+                {searching ? (nothingFound ? "" : `${open.length + threads.length + handled.length} ${open.length + threads.length + handled.length === 1 ? "chat matches" : "chats match"}`) : ""}
+              </p>
+            </form>
+            {nothingFound && (
+              <p className="px-4 py-6 text-sm text-slate-600">
+                No chats match “{search.trim()}”. Try a name, part of a number, a number plate, or a quote or job reference.
+                <button type="button" onClick={() => setSearch("")} className="mt-2 block font-medium text-accent underline underline-offset-2">Clear search</button>
+              </p>
+            )}
+            {!searching && open.length === 0 && <p className="px-4 py-6 text-sm text-slate-600">No customer is waiting for an answer. When one texts back, it lands here and their follow-ups pause.</p>}
             <ul className="divide-y divide-steel-line/70">{open.map(item)}</ul>
             {threads.length > 0 && (
               <>

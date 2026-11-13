@@ -187,7 +187,7 @@ export function SettingsView() {
 
   return (
     <>
-      <section aria-labelledby="settings-title" className="bg-graphite text-white">
+      <section aria-labelledby="settings-title" className="mx-4 mt-4 rounded-2xl bg-navy/90 text-white shadow-card md:mx-8">
         <div className="mx-auto max-w-6xl px-4 pt-6 pb-7 sm:pt-10">
           <Link href="/quotes" className="inline-flex items-center gap-1 text-sm text-steel hover:text-white focus-visible:outline-2 focus-visible:outline-signal">
             <Icon name="back" className="h-3.5 w-3.5" /> Quotes

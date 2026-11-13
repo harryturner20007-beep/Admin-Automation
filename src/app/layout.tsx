@@ -8,7 +8,7 @@ const archivo = Archivo({ variable: "--font-archivo", subsets: ["latin"], axes: 
 const inter = Inter({ variable: "--font-inter", subsets: ["latin"] });
 
 export const metadata: Metadata = {
-  title: "Garage desk",
+  title: "Revloop",
   description: "Quotes, jobs, invoices and payment chasing for independent UK garages.",
   robots: { index: false, follow: false },
 };

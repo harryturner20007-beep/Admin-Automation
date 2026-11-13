@@ -3,7 +3,7 @@ import { JobsView } from "@/components/JobsView";
 
 export const instant = false;
 
-export const metadata = { title: "Jobs · Garage desk" };
+export const metadata = { title: "Jobs · Revloop" };
 
 export default function JobsPage() {
   return (

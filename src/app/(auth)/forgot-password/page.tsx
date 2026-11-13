@@ -3,7 +3,7 @@ import { AuthCard, ForgotForm } from "@/components/AuthForms";
 // Reads the session per request: never prerendered or cached.
 export const instant = false;
 
-export const metadata = { title: "Reset password · Garage desk" };
+export const metadata = { title: "Reset password · Revloop" };
 
 export default function ForgotPasswordPage() {
   return (

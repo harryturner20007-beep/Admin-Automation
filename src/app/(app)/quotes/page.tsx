@@ -5,7 +5,7 @@ import { QuotesView } from "@/components/QuotesView";
 // Revisit when Phase 2 moves data to the server.
 export const instant = false;
 
-export const metadata = { title: "Quotes · Quote follow-up demo" };
+export const metadata = { title: "Quotes · Revloop" };
 
 export default function QuotesPage() {
   // QuotesView reads ?quote= (useSearchParams), which needs a Suspense boundary on a prerendered page.

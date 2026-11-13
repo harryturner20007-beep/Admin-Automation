@@ -30,7 +30,7 @@ export function followUpFor(state: AppState, q: Quote): FollowUp {
   return { kind: "upcoming", label: formatLondonDate(`${date}T12:00:00Z`).replace(/^\w+ /, ""), date }; // "18 Nov"
 }
 
-export type Bucket = "staff_needed" | "awaiting_reply" | "accepted" | "other";
+export type Bucket = "staff_needed" | "awaiting_reply" | "accepted" | "cancelled" | "other";
 
 const shortDay = (iso: string) => formatLondonDate(iso).replace(/^\w+ /, ""); // "6 Nov"
 
@@ -72,6 +72,7 @@ export function staffReason(state: AppState, q: Quote): string | null {
 /** Summary-card membership. An open quote is either with the automatic follow-ups or needs a person. */
 export function bucketOf(state: AppState, q: Quote): Bucket {
   if (q.status === "booked" || q.status === "completed") return "accepted";
+  if (q.status === "cancelled") return "cancelled";
   if (q.status !== "open") return "other";
   return staffReason(state, q) ? "staff_needed" : "awaiting_reply";
 }
@@ -141,6 +142,42 @@ export function recordOutcome(state: AppState, quoteId: string, outcome: Outcome
     if (reminder! > today) cancelPendingFor(state, q.id, "reminder_pending");
     log(state, q.garageId, "outcome", `${staffName} recorded ${OUTCOME_LABEL[outcome]} for ${q.customerName}; follow up ${formatLondonDate(`${reminder}T12:00:00Z`)}`, q.id);
   }
+}
+
+/**
+ * Staff cancel an open quote (for example the customer never answered). It leaves the queue for the Cancelled
+ * tab, nothing is deleted, and no more texts go out. Any reply waiting on it counts as handled.
+ */
+export function cancelQuote(state: AppState, quoteId: string, staffName: string) {
+  const q = state.quotes.find((x) => x.id === quoteId);
+  if (!q) throw new Error("Quote not found");
+  if (q.status !== "open") throw new Error("Only open quotes can be cancelled");
+  for (const t of state.tasks) {
+    if (t.status === "open" && t.quoteIds.includes(q.id) && t.kind !== "opt_out_notice" && t.kind !== "reconcile_send") {
+      t.status = "resolved";
+      t.resolvedAt = state.now;
+      t.resolution = `${staffName} cancelled the quote`;
+    }
+  }
+  q.unresolvedReply = false;
+  q.contactPendingAt = undefined;
+  q.outcome = q.reminderDate = undefined;
+  q.cancelledAt = state.now;
+  confirmStatus(state, q.id, "cancelled", staffName); // also withdraws any text still waiting to go
+}
+
+/**
+ * Bring a cancelled quote back into the queue. Automatic texts stay paused for it, so a customer who went
+ * quiet weeks ago isn't texted out of the blue: staff resume them when they are ready.
+ */
+export function restoreQuote(state: AppState, quoteId: string, staffName: string) {
+  const q = state.quotes.find((x) => x.id === quoteId);
+  if (!q) throw new Error("Quote not found");
+  if (q.status !== "cancelled") throw new Error("This quote isn't cancelled");
+  q.cancelledAt = undefined;
+  q.paused = true;
+  confirmStatus(state, q.id, "open", staffName);
+  log(state, q.garageId, "quote_restored", `${staffName} restored ${q.customerName}'s quote. Automatic texts are paused for it until you resume them.`, q.id);
 }
 
 /** The day a booked job is booked in for (shown on the calendar). Empty clears it. */

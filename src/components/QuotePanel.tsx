@@ -14,22 +14,23 @@ import {
   MESSAGE_OPTIONS,
   OUTCOME_LABEL,
   recordContactAttempt,
+  cancelQuote,
+  restoreQuote,
   recordOutcome,
   reminderDate,
   type MessageOption,
   type Outcome,
 } from "@/domain/queue";
-import { messageLabel } from "@/domain/invoices";
-import { CATEGORY_LABEL } from "@/domain/replies";
 import { setCustomerJobDescription } from "@/domain/settings";
 import { formatLondon, formatLondonDate, ukDate } from "@/domain/time";
 import { REPLY_PRESETS } from "@/demo/seed";
 import { useAction, useDemo } from "@/demo/store";
 import { ActionButton } from "./ActionButton";
 import { BookJobForm } from "./BookJobForm";
+import { QuoteWork } from "./QuoteWork";
+import { quoteValidity } from "@/domain/intake";
 import { SmsComposer } from "./SmsComposer";
 import { ReplyBox } from "./ReplyBox";
-import { deliveryLabel } from "@/domain/sms";
 import { Progress } from "./workflow";
 import { lineReveal, motionAllowed, RISE, Rise, Words } from "./motion";
 import { quoteRow } from "./quoteRows";
@@ -129,6 +130,7 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
   const [email, setEmail] = useState(q?.email ?? "");
   const [address, setAddress] = useState(q?.billingAddress ?? "");
   const [replyText, setReplyText] = useState("");
+  const [confirmCancel, setConfirmCancel] = useState(false);
   const save = useAction();
   const undoAction = useAction();
   const contact = useAction();
@@ -176,18 +178,8 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
   const chase = canChase(state, q);
   const today = ukDate(state.now);
   const reminderYmd = reminder === "custom" ? customDate : reminder ? reminderDate(state, reminder) : undefined;
+  const validity = quoteValidity(q, state.garages.find((g) => g.id === q.garageId)!.quoteValidityDays, state.now);
   const smsHref = `sms:${q.phone}?&body=${encodeURIComponent(message)}`;
-
-  const history = [
-    { at: q.quoteSentAt, text: `Quote ${q.sourceQuoteId} sent for ${formatPounds(q.amountPence)}`, body: undefined as string | undefined, who: "garage" },
-    ...state.events.filter((e) => e.quoteId === q.id && e.kind !== "reply" && e.kind !== "sent").map((e) => ({ at: e.at, text: e.text, body: undefined, who: "staff" })),
-    ...state.messages
-      .filter((m) => m.direction === "outbound" && m.quoteId === q.id && ["sending", "sent", "delivered", "failed", "needs_reconciliation"].includes(m.status ?? ""))
-      .map((m) => ({ at: m.sentAt ?? m.claimedAt ?? m.createdAt, text: `${messageLabel(m)}${m.manual ? " (sent by hand)" : ""}: ${deliveryLabel(m).label}${m.deliveryError ? `. ${m.deliveryError}` : ""}`, body: m.body, who: "garage" })),
-    ...state.messages
-      .filter((m) => m.direction === "inbound" && (m.quoteId === q.id || m.matchedQuoteIds?.includes(q.id)))
-      .map((m) => ({ at: m.createdAt, text: `Customer replied: ${CATEGORY_LABEL[m.category ?? "general"].toLowerCase()}`, body: m.body, who: "customer" })),
-  ].sort((a, b) => b.at.localeCompare(a.at)); // newest first
 
   const submitOutcome = () =>
     save.run(() => {
@@ -220,6 +212,11 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
           <div>
             <div className="text-xs text-muted">Quote</div>
             <div className="text-2xl font-semibold text-text tabular-nums">{formatPounds(q.amountPence)}</div>
+            {q.status === "open" && validity && (
+              <div className={`mt-1 text-xs tabular-nums ${validity.daysLeft <= 0 ? "font-medium text-danger" : validity.daysLeft <= 3 ? "font-medium text-attention" : "text-muted"}`}>
+                Valid until {formatLondonDate(validity.until)} · {validity.daysLeft <= 0 ? "expired" : `${validity.daysLeft} day${validity.daysLeft === 1 ? "" : "s"} left`}
+              </div>
+            )}
           </div>
           <div className="text-right">
             <StatusLabel tone={status.tone}>{status.label}</StatusLabel>
@@ -234,7 +231,7 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
         <Section title="Work">
           <p className="text-sm whitespace-pre-line text-text">{q.job}</p>
           <p className="mt-1 text-xs text-muted">{q.vehicle || "Vehicle not recorded"} · Ref {q.sourceQuoteId} · Sent {formatLondon(q.quoteSentAt)}</p>
-          <p className="mt-3 text-xs text-muted">No line items recorded for this quote; the total above is the quoted price.</p>
+          <QuoteWork q={q} />
           <div className="mt-3 flex flex-wrap items-end gap-2">
             <div className="min-w-0 flex-1">
               <label htmlFor="cust-job" className="mb-1 block text-xs font-medium text-muted">Wording for texts (optional)</label>
@@ -378,19 +375,9 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
           </Section>
         )}
 
-        {/* 6. Activity history */}
-        <Section title="Activity">
-          <ol className="space-y-3">
-            {history.map((h, i) => (
-              <li key={i} className="text-sm">
-                <div className="text-xs text-muted tabular-nums">{formatLondon(h.at)}</div>
-                <div className="text-text">{h.text}</div>
-                {h.body && <div className={`mt-1 rounded-lg px-3 py-2 ${h.who === "customer" ? "bg-selected" : "bg-canvas"}`}>{h.body}</div>}
-              </li>
-            ))}
-          </ol>
-          {!hosted && (
-          <details className="mt-4">
+        {!hosted && (
+        <Section title="Demo">
+          <details>
             <summary className={`cursor-pointer text-xs text-muted ${focusRing}`}>Demo: simulate a customer reply</summary>
             <div className="mt-2 flex flex-wrap gap-2">
               {REPLY_PRESETS.map((p) => (
@@ -403,8 +390,8 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
               <ActionButton label="Receive reply" onRun={() => { if (!replyText.trim()) throw new Error("type or pick a reply"); simulateReply(q.phone, replyText.trim()); setReplyText(""); }} success="Reply received" />
             </div>
           </details>
-          )}
         </Section>
+        )}
 
         {/* 7. Outcome and next reminder */}
         <Section title={chase ? "Outcome" : "Outcome recorded"}>
@@ -442,6 +429,30 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
               <Button variant="ghost" size="sm" onClick={() => act((s) => setQuotePaused(s, q.id, !q.paused, staff))}>
                 <Icon name="pause" /> {q.paused ? "Resume automatic texts" : "Pause automatic texts for this quote"}
               </Button>
+              <div className="border-t border-line pt-3">
+                {confirmCancel ? (
+                  <div role="group" aria-label="Confirm cancelling this quote" className="space-y-2 rounded-lg border border-line bg-canvas p-3 text-sm">
+                    <p className="text-text">Cancel this quote? It moves to the Cancelled tab and no more texts go out. You can restore it later.</p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="primary"
+                        size="sm"
+                        onClick={() => {
+                          actUndoable((s) => cancelQuote(s, q.id, staff));
+                          setConfirmCancel(false);
+                          setSaved({ text: `Cancelled ${q.customerName}'s quote. Find it in the Cancelled tab.` });
+                          onSaved(q.id);
+                        }}
+                      >
+                        Yes, cancel quote
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setConfirmCancel(false)}>Keep it</Button>
+                    </div>
+                  </div>
+                ) : (
+                  <Button size="sm" variant="ghost" onClick={() => setConfirmCancel(true)}>Cancel quote…</Button>
+                )}
+              </div>
             </div>
           ) : job ? (
             <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
@@ -457,6 +468,11 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
                 <Button variant="primary" onClick={() => setBooking(true)}>Book job</Button>
               </div>
             )
+          ) : q.status === "cancelled" ? (
+            <div className="flex flex-wrap items-center justify-between gap-3 text-sm">
+              <span className="text-muted">Cancelled{q.cancelledAt ? ` on ${formatLondonDate(q.cancelledAt)}` : ""}. No texts go out while it is cancelled.</span>
+              <ActionButton label="Restore quote" onRun={() => act((s) => restoreQuote(s, q.id, staff))} success="Restored. Automatic texts are paused until you resume them." />
+            </div>
           ) : (
             <p className="text-sm text-muted">{status.label}. Nothing more to chase.</p>
           )}
