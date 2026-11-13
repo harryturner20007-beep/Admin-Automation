@@ -14,7 +14,7 @@ import { Button, Field, InlineFeedback, inputClass } from "./ui";
  * customer accepted. Saving creates the job (or returns the existing one).
  *
  * By default this stays put: the quote's own status flips to "booked", so whichever screen it's shown
- * on (Quotes, Replies) just re-renders to its booked state and the quote drops off that screen's open
+ * on (Quotes, Chats) just re-renders to its booked state and the quote drops off that screen's open
  * list. Pass `goToJob` only when the form is used from the Jobs screen itself, where jumping to the new
  * job's panel is the point.
  */

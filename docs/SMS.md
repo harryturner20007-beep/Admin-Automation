@@ -30,8 +30,18 @@ step then waits the usual gap after the manual text.
 **Delivery unknown**: a timeout after Twilio may have accepted the text. It is never resent automatically.
 **Check with Twilio** looks it up in Twilio's log; if it isn't there, staff record it as not sent and can send again.
 
+**Invoice PDF by text**: issuing an invoice texts the customer a link to its PDF (`https://<your domain>/i/<token>`),
+straight away when Invoice texts are Automatic and the garage is open (otherwise when it next opens, or after your
+approval in Draft mode; nothing if Off). UK numbers can't receive attachments by SMS (MMS isn't available on UK
+numbers), so the PDF travels as a link. The link opens that one invoice's PDF without a login; its token is 128 random
+bits, can't be guessed, and is saved with the issued invoice (migration `20261115000000_invoice_links.sql`).
+Anyone who has the link can open that invoice, so it is only ever texted to the customer's own number. The reminders
+carry the same link. Every text, including this one, shows in **Chats** under the customer.
+
+**Chats**: the tab lists customers who need a person first, then every customer's text history, newest first.
+
 **Replies**: a reply is matched by the garage's receiving number and the customer's number. It shows in the
-customer's history and on Replies (unread badge). Chasing pauses for that customer, quotes and unpaid invoices alike,
+customer's history and on Chats (unread badge). Chasing pauses for that customer, quotes and unpaid invoices alike,
 until staff click **Handled: resume chasing**. If more than one quote or invoice could be meant, the reply stays at
 customer level and all of them are held. **STOP** (and similar words) opts the number out of every text; Twilio
 blocks it too (error 21610). **START** / **UNSTOP** opts back in; the opt-out stays on record.
@@ -85,7 +95,7 @@ Both check Twilio's signature against `NEXT_PUBLIC_SITE_URL`, so that value must
 
 1. Settings → Text messages → **Send test text** to your handset. Note the SID shown (SM…).
 2. Add a quote with your handset's number, tick consent → open it → **Send follow-up**. Status: Queued → Sent → Delivered.
-3. Reply "Yes please" from the handset: it appears in the quote's history and on Replies (unread).
+3. Reply "Yes please" from the handset: it appears in the quote's history and on Chats (unread).
 4. Reply STOP: the next send is refused ("opted out"). Reply START to undo.
 5. Set Quote follow-ups to Automatic, add a quote whose follow-up is due inside opening hours, close the browser, and
    wait up to 10 minutes: the text arrives from the garage number.

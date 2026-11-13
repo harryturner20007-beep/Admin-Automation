@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useActionState, useState, type ReactNode } from "react";
-import { createGarageAndInvite, inviteColleague, requestPasswordReset, setPassword, signIn, type FormState } from "@/server/auth";
+import { createGarageAndInvite, demoSignIn, inviteColleague, requestPasswordReset, setPassword, signIn, type FormState } from "@/server/auth";
 import { connectSmsNumber } from "@/server/sms";
 import { Button, Field, inputClass } from "./ui";
 
@@ -67,6 +67,24 @@ export function LoginForm({ next, notice }: { next: string; notice?: string }) {
       <p className="text-center text-sm">
         <Link href="/forgot-password" className={`font-medium text-accent underline underline-offset-2 hover:text-accent-hover ${focusRing}`}>Forgotten your password?</Link>
       </p>
+    </form>
+  );
+}
+
+/** Demo copy only (no Supabase configured): the shared demo login for the sample-data dashboard. */
+export function DemoLoginForm() {
+  const [state, action, pending] = useActionState(demoSignIn, undefined);
+  return (
+    <form action={action} className="space-y-4">
+      <Message state={state} />
+      <Field id="username" label="Username">
+        <input id="username" name="username" autoComplete="username" autoCapitalize="none" spellCheck={false} required className={inputClass()} />
+      </Field>
+      <Field id="password" label="Password">
+        <input id="password" name="password" type="password" autoComplete="current-password" required className={inputClass()} />
+      </Field>
+      <Submit pending={pending} busy="Signing in…">Sign in</Submit>
+      <p className="text-center text-sm text-muted">Demo login: use demo for both username and password.</p>
     </form>
   );
 }

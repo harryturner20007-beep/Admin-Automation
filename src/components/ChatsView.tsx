@@ -3,9 +3,11 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { formatPounds, reconcileSend, resolveTask } from "@/domain/engine";
+import { chatThreads, type Thread } from "@/domain/chats";
 import { messageLabel } from "@/domain/invoices";
+import { deliveryLabel } from "@/domain/sms";
 import { formatLondon } from "@/domain/time";
-import type { StaffTask, TaskKind } from "@/domain/types";
+import type { Message, StaffTask, TaskKind } from "@/domain/types";
 import { REPLY_PRESETS } from "@/demo/seed";
 import { useAction, useDemo } from "@/demo/store";
 import { ActionButton } from "./ActionButton";
@@ -25,7 +27,7 @@ const KIND: Record<TaskKind, { label: string; handoff: string }> = {
   reconcile_send: { label: "Check send", handoff: "The SMS provider timed out. Check its log and record what happened. Nothing is resent automatically." },
 };
 
-// In-app links set this before navigating: the #hash isn't in the URL yet when Replies first renders.
+// In-app links set this before navigating: the #hash isn't in the URL yet when Chats first renders.
 let queuedReply: string | null = null;
 export const queueReply = (taskId: string) => {
   queuedReply = taskId;
@@ -49,6 +51,44 @@ function KindMark({ t }: { t: StaffTask }) {
   return <span className={`text-[11px] font-semibold ${red ? "text-red-700" : "text-slate-600"}`}>{KIND[t.kind].label}</span>;
 }
 
+/** URLs in a text become links (the invoice PDF link, for one). Only http(s) addresses are linked. */
+function Linkified({ text }: { text: string }) {
+  return (
+    <>
+      {text.split(/(https?:\/\/[^\s]+)/g).map((part, i) =>
+        /^https?:\/\//.test(part) ? (
+          <a key={i} href={part} target="_blank" rel="noopener noreferrer" className="break-all underline underline-offset-2">{part}</a>
+        ) : (
+          part
+        ),
+      )}
+    </>
+  );
+}
+
+function MessageList({ msgs }: { msgs: Message[] }) {
+  if (!msgs.length) return <p className="text-sm text-slate-500">No messages yet.</p>;
+  return (
+    <ol className="space-y-3">
+      {msgs.map((m) => {
+        const out = m.direction === "outbound";
+        return (
+          <li key={m.id} className={`flex ${out ? "justify-end" : "justify-start"}`}>
+            <div className="max-w-[85%]">
+              <div className={`rounded-2xl px-3.5 py-2.5 text-[15px] leading-snug ${out ? "rounded-br-sm bg-graphite text-white" : "rounded-bl-sm border border-steel-line bg-white text-ink"}`}>
+                <Linkified text={m.body} />
+              </div>
+              <div className={`mt-1 text-[11px] text-slate-500 tabular-nums ${out ? "text-right" : ""}`}>
+                {formatLondon(m.sentAt ?? m.createdAt)}, {out ? `${messageLabel(m).toLowerCase()}, ${deliveryLabel(m).label.toLowerCase()}${m.approvedBy?.startsWith("Automatic") ? ", sent automatically" : ""}` : "customer"}
+              </div>
+            </div>
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
+
 function Conversation({ task }: { task: StaffTask }) {
   const { state } = useDemo();
   const trigger = task.messageId ? state.messages.find((m) => m.id === task.messageId) : undefined;
@@ -59,23 +99,36 @@ function Conversation({ task }: { task: StaffTask }) {
         (m.direction === "inbound" && (m.id === trigger?.id || (m.matchedQuoteIds ?? []).some((id) => task.quoteIds.includes(id)))),
     )
     .sort((a, b) => Date.parse(a.sentAt ?? a.createdAt) - Date.parse(b.sentAt ?? b.createdAt));
-  if (!msgs.length) return <p className="text-sm text-slate-500">No messages yet.</p>;
+  return <MessageList msgs={msgs} />;
+}
+
+/** A customer's whole text history, including texts that sent themselves (invoices with their PDF link, follow-ups). */
+function ThreadDetail({ thread, onBack }: { thread: Thread; onBack: () => void }) {
+  const { state, garageId } = useDemo();
+  const quotes = state.quotes.filter((q) => q.garageId === garageId && q.phone === thread.phone);
+  const invoiceIds = [...new Set(thread.messages.map((m) => m.invoiceId).filter((x): x is string => !!x))];
   return (
-    <ol className="space-y-3">
-      {msgs.map((m) => {
-        const out = m.direction === "outbound";
-        return (
-          <li key={m.id} className={`flex ${out ? "justify-end" : "justify-start"}`}>
-            <div className="max-w-[85%]">
-              <div className={`rounded-2xl px-3.5 py-2.5 text-[15px] leading-snug ${out ? "rounded-br-sm bg-graphite text-white" : "rounded-bl-sm border border-steel-line bg-white text-ink"}`}>{m.body}</div>
-              <div className={`mt-1 text-[11px] text-slate-500 tabular-nums ${out ? "text-right" : ""}`}>
-                {formatLondon(m.sentAt ?? m.createdAt)}, {out ? `${messageLabel(m).toLowerCase()}${m.approvedBy?.startsWith("Automatic") ? ", sent automatically" : ""}` : "customer"}
-              </div>
-            </div>
-          </li>
-        );
-      })}
-    </ol>
+    <div className="flex min-h-full flex-col">
+      <div className="border-b border-steel-line/70 px-5 pt-4 pb-4">
+        <button onClick={onBack} className="mb-3 inline-flex items-center gap-1 text-sm text-slate-600 hover:text-ink focus-visible:outline-2 focus-visible:outline-signal lg:hidden">
+          <Icon name="back" className="h-3.5 w-3.5" /> All chats
+        </button>
+        <h2 className="text-xl leading-tight font-bold break-words text-ink [font-stretch:115%]">{thread.name}</h2>
+        <p className="mt-1 text-sm text-slate-500 tabular-nums">{thread.phone}</p>
+        <div className="mt-3 flex flex-wrap gap-2 text-sm">
+          {quotes.map((q) => (
+            <Link key={q.id} href={`/quotes?quote=${q.id}`} className="inline-flex min-h-11 items-center rounded-md border border-steel-line px-3 text-ink hover:border-steel focus-visible:outline-2 focus-visible:outline-signal">Quote {q.sourceQuoteId}</Link>
+          ))}
+          {invoiceIds.map((id) => {
+            const inv = state.invoices.find((i) => i.id === id);
+            return inv ? (
+              <Link key={id} href={`/invoices?invoice=${id}`} className="inline-flex min-h-11 items-center rounded-md border border-steel-line px-3 text-ink hover:border-steel focus-visible:outline-2 focus-visible:outline-signal">Invoice {inv.number || "draft"}</Link>
+            ) : null;
+          })}
+        </div>
+      </div>
+      <div className="flex-1 px-5 py-5"><MessageList msgs={thread.messages} /></div>
+    </div>
   );
 }
 
@@ -202,7 +255,7 @@ function SimulateInbound() {
   );
 }
 
-export function RepliesView() {
+export function ChatsView() {
   const { state, garageId, act, hosted } = useDemo();
   const [selected, setSelected] = useState<string | null>(() => queuedReply ?? (window.location.hash.slice(1) || null));
   const tasks = state.tasks.filter((t) => t.garageId === garageId);
@@ -211,10 +264,13 @@ export function RepliesView() {
   const handled = tasks.filter((t) => t.status === "resolved").sort((a, b) => Date.parse(b.resolvedAt!) - Date.parse(a.resolvedAt!));
   const unread = open.filter((t) => !t.readAt).length;
   const paused = state.quotes.filter((q) => q.garageId === garageId && q.status === "open" && q.unresolvedReply).length;
+  const threads = chatThreads(state, garageId).filter((th) => !th.hasOpenTask); // threads with a reply waiting are in the list above
+  const currentThread = selected?.startsWith("thread:") ? threads.find((th) => `thread:${th.phone}` === selected) : undefined;
   const current = tasks.find((t) => t.id === selected);
 
   const select = (id: string) => {
     setSelected(id);
+    if (id.startsWith("thread:")) return;
     const t = state.tasks.find((x) => x.id === id);
     if (t && !t.readAt) act((s) => (s.tasks.find((x) => x.id === id)!.readAt = s.now));
   };
@@ -259,7 +315,7 @@ export function RepliesView() {
       <section aria-labelledby="replies-title" className="bg-graphite text-white">
         <div className="mx-auto max-w-6xl px-4 pt-6 pb-7 sm:pt-10">
           <h1 id="replies-title" className="text-[clamp(2rem,5vw,3.5rem)] leading-[0.95] font-extrabold tracking-[-0.02em] [font-stretch:125%]">
-            {open.length ? `${open.length} ${open.length === 1 ? "reply needs" : "replies need"} a person` : "Inbox clear"}
+            {open.length ? `${open.length} ${open.length === 1 ? "chat needs" : "chats need"} a person` : "Chats"}
           </h1>
           <p className="mt-3 max-w-[62ch] text-steel">
             <span className="text-white tabular-nums">{unread}</span> unread. Follow-ups paused for <span className="text-white tabular-nums">{paused}</span> {paused === 1 ? "quote" : "quotes"} while replies wait. STOP is applied before anything else.
@@ -270,9 +326,35 @@ export function RepliesView() {
       <div className="mx-auto max-w-6xl px-0 py-0 sm:px-4 sm:py-6">
         <div className="grid min-h-[560px] grid-cols-[minmax(0,1fr)] overflow-hidden border-steel-line bg-white sm:rounded-md sm:border lg:grid-cols-[360px_minmax(0,1fr)]">
           {/* List: always on desktop; on phones only when nothing is open (drill-down). */}
-          <nav aria-label="Conversations" className={`border-steel-line/70 lg:border-r ${current ? "hidden lg:block" : ""}`}>
-            {open.length === 0 && <p className="px-4 py-6 text-sm text-slate-600">No replies waiting. When a customer texts back, it lands here and their follow-ups pause.</p>}
+          <nav aria-label="Conversations" className={`border-steel-line/70 lg:border-r ${current || currentThread ? "hidden lg:block" : ""}`}>
+            {open.length === 0 && <p className="px-4 py-6 text-sm text-slate-600">No customer is waiting for an answer. When one texts back, it lands here and their follow-ups pause.</p>}
             <ul className="divide-y divide-steel-line/70">{open.map(item)}</ul>
+            {threads.length > 0 && (
+              <>
+                <h2 className="border-y border-steel-line/70 bg-work px-4 py-1.5 text-xs font-medium text-slate-600">All chats</h2>
+                <ul className="divide-y divide-steel-line/70">
+                  {threads.map((th) => {
+                    const on = selected === `thread:${th.phone}`;
+                    const out = th.last.direction === "outbound";
+                    return (
+                      <li key={th.phone}>
+                        <button
+                          onClick={() => select(`thread:${th.phone}`)}
+                          aria-current={on ? "true" : undefined}
+                          className={`relative block w-full border-l-[3px] px-4 py-3 text-left transition-colors focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-signal ${on ? "border-l-signal bg-signal/[0.06]" : "border-l-transparent hover:bg-work"}`}
+                        >
+                          <span className="flex items-baseline gap-2">
+                            <span className="min-w-0 flex-1 truncate text-[15px] font-medium text-ink">{th.name}</span>
+                            <span className="shrink-0 text-xs text-slate-500 tabular-nums">{formatLondon(th.last.sentAt ?? th.last.createdAt)}</span>
+                          </span>
+                          <span className="mt-0.5 block truncate text-sm text-slate-600">{out ? `${messageLabel(th.last)}: ` : ""}{th.last.body}</span>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
             {handled.length > 0 && (
               <>
                 <h2 className="border-y border-steel-line/70 bg-work px-4 py-1.5 text-xs font-medium text-slate-600">Handled</h2>
@@ -282,8 +364,10 @@ export function RepliesView() {
             {!hosted && <SimulateInbound /> /* real replies arrive from the provider */}
           </nav>
 
-          <section aria-label="Conversation" className={current ? "" : "hidden lg:block"}>
-            {current ? (
+          <section aria-label="Conversation" className={current || currentThread ? "" : "hidden lg:block"}>
+            {currentThread ? (
+              <ThreadDetail key={currentThread.phone} thread={currentThread} onBack={() => setSelected(null)} />
+            ) : current ? (
               <Detail key={current.id} t={current} onBack={() => setSelected(null)} />
             ) : (
               <div className="grid h-full place-items-center px-6 py-16 text-center text-sm text-slate-500">Choose a conversation to read it and take the next step.</div>

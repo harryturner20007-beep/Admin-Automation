@@ -221,6 +221,7 @@ export type Invoice = {
   content?: InvoiceContent; // the draft (or, once issued, the frozen copy)
   totals?: Totals;
   issuedBy?: string;
+  shareToken?: string; // unguessable id in the invoice link texted to the customer (/i/<token>); set when issued
   cancelledAt?: string;
   cancelReason?: string;
   replacesId?: string; // a corrected draft points at the cancelled invoice it replaces
@@ -258,7 +259,7 @@ export type StaffTask = {
   createdAt: string;
   resolvedAt?: string;
   resolution?: string;
-  readAt?: string; // set when staff first open it on the Replies screen
+  readAt?: string; // set when staff first open it on the Chats screen
 };
 
 export type AuditEvent = {

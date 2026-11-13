@@ -186,3 +186,18 @@ describe("platform admin access", () => {
     expect(await as("authenticated", ADMIN, "select * from public.workspaces")).toEqual([]);
   });
 });
+
+describe("invoice links", () => {
+  it("the token is stored with the issued invoice, unique across garages, and can't be changed", async () => {
+    const a = await docOf(garageA);
+    const issued = { id: "inv_link1", jobId: "job_x", number: "INV-0100", amountPence: 5000, shareToken: "TOKENAAAAAAAAAAAAAAAAA" };
+    await save(A_USER, garageA, a.version, a.doc, issued);
+    const row = await as<{ share_token: string }>("service_role", null, "select share_token from public.issued_invoices where id = 'inv_link1'");
+    expect(row[0].share_token).toBe("TOKENAAAAAAAAAAAAAAAAA");
+    const b = await docOf(garageB);
+    await expect(save(B_USER, garageB, b.version, b.doc, { ...issued, id: "inv_link2", number: "INV-0101" })).rejects.toThrow(/duplicate key/); // never shared by two invoices
+    await expect(as("service_role", null, "update public.issued_invoices set share_token = 'OTHER' where id = 'inv_link1'")).rejects.toThrow(/cannot be changed/);
+    // Browsers can't look tokens up: only the server resolves a link.
+    expect(await as("authenticated", B_USER, "select share_token from public.issued_invoices where id = 'inv_link1'")).toEqual([]);
+  });
+});

@@ -20,7 +20,7 @@ const TABS: { href: string; label: string; icon: IconName }[] = [
   { href: "/quotes", label: "Quotes", icon: "quotes" },
   { href: "/jobs", label: "Jobs", icon: "wrench" },
   { href: "/invoices", label: "Invoices", icon: "pound" },
-  { href: "/replies", label: "Replies", icon: "inbox" },
+  { href: "/chats", label: "Chats", icon: "inbox" },
   { href: "/calendar", label: "Calendar", icon: "calendar" },
   { href: "/results", label: "Results", icon: "results" },
   { href: "/settings", label: "Settings", icon: "sliders" },
@@ -81,7 +81,7 @@ export function Shell({ children, user }: { children: ReactNode; user?: User }) 
   }, [path]);
 
   const badge = (t: (typeof TABS)[number], rail = false) =>
-    t.href === "/replies" && unread > 0 ? (
+    t.href === "/chats" && unread > 0 ? (
       <span aria-hidden className={`rounded-full bg-accent px-1.5 text-[11px] leading-4 font-semibold text-white tabular-nums ${rail ? "absolute top-1 right-1 desk:static" : ""}`}>
         {unread}
       </span>
@@ -104,7 +104,7 @@ export function Shell({ children, user }: { children: ReactNode; user?: User }) 
                 key={t.href}
                 href={t.href}
                 aria-current={active ? "page" : undefined}
-                aria-label={`${t.label}${t.href === "/replies" && unread ? `, ${unread} unread` : ""}`}
+                aria-label={`${t.label}${t.href === "/chats" && unread ? `, ${unread} unread` : ""}`}
                 title={t.label}
                 className={`hover-x2 relative flex min-h-11 items-center justify-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors desk:justify-start ${focus} ${active ? "bg-selected text-accent" : "text-muted hover:bg-canvas hover:text-text"}`}
               >
@@ -165,7 +165,7 @@ export function Shell({ children, user }: { children: ReactNode; user?: User }) 
                 <Icon name={t.icon} className="hidden h-4 w-4 min-[440px]:block" />
                 {t.label}
                 {badge(t)}
-                {t.href === "/replies" && unread > 0 && <span className="sr-only">, {unread} unread</span>}
+                {t.href === "/chats" && unread > 0 && <span className="sr-only">, {unread} unread</span>}
               </Link>
             );
           })}

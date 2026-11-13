@@ -33,7 +33,7 @@ import { deliveryLabel } from "@/domain/sms";
 import { Progress } from "./workflow";
 import { lineReveal, motionAllowed, RISE, Rise, Words } from "./motion";
 import { quoteRow } from "./quoteRows";
-import { queueReply } from "./RepliesView";
+import { queueReply } from "./ChatsView";
 import { statusOf } from "./quoteStatus";
 import { Button, Icon, InlineFeedback, inputClass, PlateLabel, StatusLabel } from "./ui";
 
@@ -372,7 +372,7 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
             )}
             {row.replyTask && (
               <p className="mt-2 text-xs text-muted">
-                A customer reply is waiting. <Link className="font-medium text-accent underline" href={`/replies#${row.replyTask.id}`} onClick={() => queueReply(row.replyTask!.id)}>Open it in Replies</Link>
+                A customer reply is waiting. <Link className="font-medium text-accent underline" href={`/chats#${row.replyTask.id}`} onClick={() => queueReply(row.replyTask!.id)}>Open it in Chats</Link>
               </p>
             )}
           </Section>

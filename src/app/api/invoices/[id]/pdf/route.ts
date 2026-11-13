@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import type { Invoice } from "@/domain/types";
-import { buildInvoicePdf } from "@/lib/invoicePdf";
+import { issuedInvoicePdf } from "@/server/invoicePdf";
 import { adminClient, currentMember, userClient } from "@/server/supabase";
 
 const PRIVATE = { "Cache-Control": "private, no-store" };
@@ -21,18 +21,8 @@ export async function GET(_: Request, ctx: RouteContext<"/api/invoices/[id]/pdf"
   const { data: row } = await supabase.from("issued_invoices").select("garage_id, id, number, snapshot, pdf_path").eq("id", id).eq("garage_id", m.garageId).maybeSingle();
   if (!row) return NextResponse.json({ error: "Invoice not found" }, { status: 404, headers: PRIVATE });
 
-  const inv = row.snapshot as Invoice;
-  // Paid/cancelled status lives in the workspace; the content printed is always the frozen copy.
-  const { data: ws } = await supabase.from("workspaces").select("doc->invoices").eq("garage_id", m.garageId).single();
-  const live = ((ws as { invoices?: Invoice[] } | null)?.invoices ?? []).find((i) => i.id === id);
   const admin = adminClient();
-  let logo: { bytes: Uint8Array; type: "png" | "jpg" } | undefined;
-  const logoPath = inv.content?.seller.logoPath;
-  if (logoPath?.startsWith(`${m.garageId}/`)) {
-    const { data } = await admin.storage.from("garage-files").download(logoPath);
-    if (data) logo = { bytes: new Uint8Array(await data.arrayBuffer()), type: data.type === "image/png" ? "png" : "jpg" };
-  }
-  const bytes = await buildInvoicePdf({ number: inv.number, issuedAt: inv.issuedAt, dueDate: inv.dueDate, status: live?.status === "cancelled" ? "cancelled" : "unpaid", content: inv.content!, totals: inv.totals!, logo });
+  const bytes = await issuedInvoicePdf(m.garageId, row.snapshot as Invoice);
 
   const path = `${m.garageId}/invoices/${row.id}.pdf`;
   const { error } = await admin.storage.from("garage-files").upload(path, bytes, { contentType: "application/pdf", upsert: true });

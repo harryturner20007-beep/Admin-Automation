@@ -1,4 +1,6 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { DEMO_COOKIE } from "@/lib/demoAuth";
 import { Shell } from "@/components/Shell";
 import { DemoProvider } from "@/demo/store";
 import { HOSTED } from "@/lib/mode";
@@ -9,9 +11,10 @@ import { loadWorkspace } from "@/server/workspace";
 // Without Supabase configured, the same screens run as the browser-only demo with sample data.
 export default async function AppLayout({ children }: LayoutProps<"/">) {
   if (!HOSTED) {
+    if (!(await cookies()).get(DEMO_COOKIE)) redirect("/login"); // the demo has its own sign-in too
     return (
       <DemoProvider>
-        <Shell>{children}</Shell>
+        <Shell user={{ email: "demo", garageName: "Riverside Garage (demo)", platformAdmin: false }}>{children}</Shell>
       </DemoProvider>
     );
   }

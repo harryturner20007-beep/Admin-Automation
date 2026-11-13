@@ -8,7 +8,7 @@ const XML = { "Content-Type": "text/xml" };
 
 /**
  * Incoming text (the number's "A message comes in" webhook). The garage is the one our sms_numbers table
- * links to the receiving number. Replies go into the customer's history and Replies; nothing is auto-answered
+ * links to the receiving number. Replies go into the customer's history and Chats; nothing is auto-answered
  * (Twilio itself answers STOP/START on UK long codes).
  */
 export async function POST(request: NextRequest) {

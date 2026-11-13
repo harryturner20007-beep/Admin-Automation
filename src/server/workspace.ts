@@ -5,7 +5,7 @@
 import { issueDraftInvoice } from "@/domain/invoices";
 import type { AppState, Invoice } from "@/domain/types";
 import { checkTransition, migrateState } from "@/domain/workspace";
-import { load, write, type SaveResult } from "./store";
+import { load, withWorkspace, write, type SaveResult } from "./store";
 import { adminClient, currentMember, type Member } from "./supabase";
 
 const MAX_DOC_BYTES = 8_000_000; // matches serverActions.bodySizeLimit in next.config.ts
@@ -39,28 +39,33 @@ export async function saveWorkspace(baseVersion: number, doc: AppState, op: stri
 }
 
 /**
- * Issue an invoice draft on the server: number, totals and the frozen copy are worked out here from the
- * saved record (never from the browser), and stored with the workspace in one transaction.
+ * Issue an invoice draft on the server: number, totals, link and the frozen copy are made here from the saved
+ * record (never from the browser) and stored with the workspace in one transaction. Only then is the
+ * customer's invoice text sent, so the link in it is always the one that was saved, even if the save had to
+ * be retried after a clash with another change.
  */
 export async function issueInvoice(invoiceId: string): Promise<SaveResult & { doc?: AppState }> {
   const m = await currentMember();
   if (!m?.garageId) return { kind: "signed_out" };
-  for (let attempt = 0; attempt < 3; attempt++) {
-    const { doc, version } = await load(m.garageId);
-    doc.now = new Date().toISOString();
-    let inv: Invoice;
-    try {
-      const was = doc.invoices.find((i) => i.id === invoiceId)?.status;
-      inv = issueDraftInvoice(doc, invoiceId, m.displayName);
-      if (was !== "draft") return { kind: "saved", version, doc }; // already issued: nothing to do
-    } catch (e) {
-      return { kind: "invalid", message: (e as Error).message };
-    }
-    const r = await write(m, m.garageId, version, doc, `issue ${inv.number}`, inv);
-    if (r.kind === "saved") return { ...r, doc };
-    if (r.kind !== "conflict") return r;
+  try {
+    let wasDraft = false;
+    const issued = await withWorkspace(
+      m.garageId,
+      m,
+      "issue invoice",
+      (doc) => {
+        wasDraft = doc.invoices.find((i) => i.id === invoiceId)?.status === "draft";
+        return issueDraftInvoice(doc, invoiceId, m.displayName);
+      },
+      false,
+      (inv) => (wasDraft ? inv : undefined), // already issued (a repeat or another tab): nothing new to store
+    );
+    // Send the invoice text now (Automatic invoice texts) through the garage's own number, inside opening hours.
+    const sent = await withWorkspace(m.garageId, m, "send invoice text", () => undefined);
+    return { kind: "saved", version: sent.version, doc: sent.doc };
+  } catch (e) {
+    return { kind: "invalid", message: (e as Error).message };
   }
-  return { kind: "invalid", message: "The garage's records are busy. Try again." };
 }
 
 /** Owner uploads a logo (PNG or JPEG, up to 300 KB) to the garage's private folder. */

@@ -1,7 +1,8 @@
-import Link from "next/link";
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
+import { DEMO_COOKIE } from "@/lib/demoAuth";
 import { currentMember } from "@/server/supabase";
-import { AuthCard, LoginForm } from "@/components/AuthForms";
+import { AuthCard, DemoLoginForm, LoginForm } from "@/components/AuthForms";
 import { HOSTED } from "@/lib/mode";
 
 // Reads the session per request: never prerendered or cached.
@@ -12,9 +13,10 @@ export const metadata = { title: "Sign in · Garage desk" };
 export default async function LoginPage({ searchParams }: PageProps<"/login">) {
   const p = await searchParams;
   if (!HOSTED) {
+    if ((await cookies()).get(DEMO_COOKIE)) redirect("/overview"); // already signed in to the demo
     return (
-      <AuthCard title="Sign in" intro="Accounts aren't set up on this copy. It runs as a demo with sample data.">
-        <Link href="/overview" className="inline-flex min-h-11 items-center rounded-lg bg-accent px-4 text-sm font-medium text-white hover:bg-accent-hover">Open the demo</Link>
+      <AuthCard title="Sign in" intro="This copy runs as a demo with sample data.">
+        <DemoLoginForm />
       </AuthCard>
     );
   }

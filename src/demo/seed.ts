@@ -10,7 +10,7 @@ import {
   receiveInbound,
   runFollowUpCheck,
 } from "@/domain/engine";
-import { markInvoicePaid, runInvoiceCheck } from "@/domain/invoices";
+import { markInvoicePaid, runInvoiceCheck, setShareTokenSource } from "@/domain/invoices";
 import { bookJob, completeJob, startJob } from "@/domain/jobs";
 import { recordOutcome } from "@/domain/queue";
 import { fromLondonInput } from "@/domain/time";
@@ -245,6 +245,16 @@ function reply(state: AppState, from: string, body: string) {
  * check drafts what is due (all approved, as staff did); dated events add replies, bookings and payments.
  */
 export async function buildSeedState(): Promise<AppState> {
+  let n = 0;
+  const restoreTokens = setShareTokenSource(() => `DEMO${String(++n).padStart(18, "0")}`); // sample data: predictable, so the demo rebuilds identically
+  try {
+    return await buildSeed();
+  } finally {
+    restoreTokens();
+  }
+}
+
+async function buildSeed(): Promise<AppState> {
   const s = emptyState("2026-10-15T08:00:00.000Z");
   const provider = new MockSmsProvider("accept");
   const events: [string, () => unknown][] = [];

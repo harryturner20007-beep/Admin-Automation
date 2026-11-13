@@ -1,7 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-const PUBLIC = ["/login", "/forgot-password", "/reset-password", "/auth/", "/api/cron/", "/api/sms/"]; // webhooks check their own signature
+const PUBLIC = ["/login", "/forgot-password", "/reset-password", "/auth/", "/api/cron/", "/api/sms/", "/i/"]; // webhooks check their own signature; /i/ links are opened by customers
 const REMEMBER_COOKIE = "gm-remember";
 
 /**

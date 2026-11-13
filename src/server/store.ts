@@ -105,7 +105,7 @@ export function providerFor(garageId: string, sender: Sender | null, isTest = fa
  * conflict it starts again from the newer copy: the change must be safe to repeat, and texts are, because the
  * send ledger hands back the first attempt's result instead of sending again.
  */
-export async function withWorkspace<T>(garageId: string, member: Member | null, label: string, change: (doc: AppState) => T, send = true): Promise<{ doc: AppState; version: number; result: T; sends: SendReportItem[] }> {
+export async function withWorkspace<T>(garageId: string, member: Member | null, label: string, change: (doc: AppState) => T, send = true, issuedOf?: (result: T) => Invoice | undefined): Promise<{ doc: AppState; version: number; result: T; sends: SendReportItem[] }> {
   const sender = await senderFor(garageId);
   const provider = send ? providerFor(garageId, sender) : null;
   for (let attempt = 0; attempt < 5; attempt++) {
@@ -116,7 +116,7 @@ export async function withWorkspace<T>(garageId: string, member: Member | null, 
     const result = change(doc);
     const sends = provider && doc.messages.some((m) => m.status === "approved") ? await dispatchApproved(doc, provider) : [];
     if (fingerprint(doc) === before) return { doc, version, result, sends }; // nothing changed: don't rewrite (the scheduler runs often)
-    const r = await write(member, garageId, version, doc, label);
+    const r = await write(member, garageId, version, doc, label, issuedOf?.(result));
     if (r.kind === "saved") return { doc, version: r.version, result, sends };
     if (r.kind !== "conflict") throw new Error(r.kind === "invalid" ? r.message : "Signed out");
   }

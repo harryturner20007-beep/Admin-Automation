@@ -21,6 +21,10 @@ const nextConfig: NextConfig = {
       ],
     }];
   },
+  // The Replies tab is now Chats: old bookmarks and links keep working.
+  async redirects() {
+    return [{ source: "/replies", destination: "/chats", permanent: false }];
+  },
   turbopack: {
     rules: {
       "*.css": {

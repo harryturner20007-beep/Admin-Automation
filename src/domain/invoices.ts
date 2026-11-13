@@ -19,12 +19,37 @@ const PENDING = new Set(["awaiting_approval", "approved"]);
 const SENT = new Set(["sent", "delivered"]);
 const dayText = (ymd: string) => formatLondonDate(`${ymd}T12:00:00Z`);
 
+/** A random 128-bit id for the invoice link (22 URL-safe characters). Works in browsers and Node. */
+function newShareToken(): string {
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return btoa(String.fromCharCode(...bytes)).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+
+let makeToken = newShareToken;
+/** Replace how link ids are made (the demo seed uses predictable ones so it rebuilds identically). Returns the undo. */
+export function setShareTokenSource(fn: () => string): () => void {
+  const was = makeToken;
+  makeToken = fn;
+  return () => {
+    makeToken = was;
+  };
+}
+
+/** The address of the invoice PDF the customer is texted, or "" for invoices issued before links existed. */
+export function invoiceLinkUrl(inv: Pick<Invoice, "shareToken">): string {
+  const base = (process.env.NEXT_PUBLIC_SITE_URL ?? "http://localhost:3000").replace(/\/$/, "");
+  return inv.shareToken ? `${base}/i/${inv.shareToken}` : "";
+}
+
 export function invoiceText(inv: Invoice, q: Quote, garageName: string, step: InvoiceStep): string {
   const v = templateValues(q, { name: garageName });
   const amount = formatPounds(inv.amountPence);
-  if (step === 0) return `Hi ${v.first_name}, thanks for choosing ${v.garage_name}. Your invoice ${inv.number} for ${v.job_description} is ${amount}, due by ${dayText(inv.dueDate)}. Reply here with any questions. Reply STOP to opt out.`;
-  if (step === 1) return `Hi ${v.first_name}, ${v.garage_name} here. A reminder that invoice ${inv.number} (${amount}) was due on ${dayText(inv.dueDate)}. If you've already paid, thank you, and please ignore this. Reply STOP to opt out.`;
-  return `Hi ${v.first_name}, ${v.garage_name} again. Invoice ${inv.number} (${amount}) is still unpaid. Please call us or reply here to arrange payment. Reply STOP to opt out.`;
+  const url = invoiceLinkUrl(inv);
+  const pdf = url ? ` Your PDF invoice: ${url}` : "";
+  if (step === 0) return `Hi ${v.first_name}, thanks for choosing ${v.garage_name}. Your invoice ${inv.number} for ${v.job_description} is ${amount}, due by ${dayText(inv.dueDate)}.${pdf} Reply here with any questions. Reply STOP to opt out.`;
+  if (step === 1) return `Hi ${v.first_name}, ${v.garage_name} here. A reminder that invoice ${inv.number} (${amount}) was due on ${dayText(inv.dueDate)}.${pdf} If you've already paid, thank you, and please ignore this. Reply STOP to opt out.`;
+  return `Hi ${v.first_name}, ${v.garage_name} again. Invoice ${inv.number} (${amount}) is still unpaid.${pdf} Please call us or reply here to arrange payment. Reply STOP to opt out.`;
 }
 
 const invoiceOf = (state: AppState, invoiceId: string) => {
@@ -168,6 +193,7 @@ export function issueDraftInvoice(state: AppState, invoiceId: string, staffName:
   inv.totals = totals(inv.content);
   inv.amountPence = inv.totals.totalPence;
   inv.number = allocateNumber(state, garage);
+  inv.shareToken = makeToken();
   inv.issuedAt = state.now;
   inv.issuedBy = staffName;
   inv.dueDate = addDaysYmd(ukDate(state.now), inv.content.paymentTermsDays);
@@ -207,6 +233,7 @@ export function cancelInvoice(state: AppState, invoiceId: string, reason: string
     issuedBy: undefined,
     cancelledAt: undefined,
     cancelReason: undefined,
+    shareToken: undefined, // the corrected invoice gets its own link when issued; the old link keeps showing the old invoice
     chasePaused: false,
     replacesId: inv.id,
   };

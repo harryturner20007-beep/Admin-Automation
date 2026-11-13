@@ -5,6 +5,8 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { newWorkspace } from "@/domain/workspace";
+import { checkDemoCredentials, DEMO_COOKIE } from "@/lib/demoAuth";
+import { HOSTED } from "@/lib/mode";
 import { ADMIN_GARAGE_COOKIE, adminClient, currentMember, REMEMBER_COOKIE, userClient } from "./supabase";
 
 export type FormState = { error?: string; ok?: string } | undefined;
@@ -18,6 +20,14 @@ const safeNext = (v: FormDataEntryValue | null) => {
   return s.startsWith("/") && !s.startsWith("//") && !s.startsWith("/\\") ? s : "/overview";
 };
 const MIN_PASSWORD = 10;
+
+/** Sign in to the sample-data demo with the shared demo login. Never available on a hosted deployment. */
+export async function demoSignIn(_: FormState, form: FormData): Promise<FormState> {
+  if (HOSTED) return { error: "Demo sign-in isn't available here." };
+  if (!checkDemoCredentials(String(form.get("username") ?? ""), String(form.get("password") ?? ""))) return { error: "That username and password don't match." };
+  (await cookies()).set(DEMO_COOKIE, "1", { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 8 * 3600 });
+  redirect("/overview");
+}
 
 export async function signIn(_: FormState, form: FormData): Promise<FormState> {
   const address = email(form.get("email"));
@@ -61,6 +71,10 @@ export async function setPassword(_: FormState, form: FormData): Promise<FormSta
 
 /** Sign out here, or everywhere (revokes every session's refresh token). */
 export async function signOut(form: FormData) {
+  if (!HOSTED) {
+    (await cookies()).delete(DEMO_COOKIE);
+    redirect("/login");
+  }
   const supabase = await userClient();
   await supabase.auth.signOut({ scope: form.get("everywhere") === "on" ? "global" : "local" });
   const store = await cookies();

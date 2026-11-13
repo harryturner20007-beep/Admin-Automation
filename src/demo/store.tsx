@@ -97,13 +97,18 @@ export type TextOutcome = { status: string; detail?: string };
 
 const Ctx = createContext<DemoCtx | null>(null);
 
-/** Demo: send through the simulated provider (it "delivers" at once; real texts wait for the network's receipt). */
-async function demoDispatch(s: AppState, messageId: string): Promise<TextOutcome> {
+/** Demo: send what is approved through the simulated provider (it "delivers" at once; real texts wait for the network's receipt). */
+async function dispatchDemo(s: AppState) {
   const sends = await dispatchApproved(s, new MockSmsProvider(s.providerMode));
   for (const r of sends.filter((x) => x.outcome === "sent")) {
     const m = s.messages.find((x) => x.id === r.messageId)!;
     applyDeliveryStatus(s, { eventId: `${m.providerMessageId}:delivered`, providerMessageId: m.providerMessageId!, status: "delivered" });
   }
+  return sends;
+}
+
+async function demoDispatch(s: AppState, messageId: string): Promise<TextOutcome> {
+  const sends = await dispatchDemo(s);
   const m = s.messages.find((x) => x.id === messageId)!;
   const why = sends.find((x) => x.messageId === messageId)?.reasons;
   return { status: deliveryLabel(m).label, detail: m.deliveryError ?? (why?.length ? why.map((r) => GATE_REASON_TEXT[r]).join(", ") : undefined) };
@@ -282,7 +287,11 @@ export function DemoProvider({ children, hosted }: { children: ReactNode; hosted
       };
     return {
       issueInvoice: async (invoiceId: string) => {
-        apply((s) => issueDraftInvoice(s, invoiceId, staff));
+        // Issuing texts the customer their invoice link at once (when invoice texts are on), as on the server.
+        const s = draft();
+        issueDraftInvoice(s, invoiceId, staff);
+        await dispatchDemo(s);
+        commit(s);
       },
       actUndoable: (fn: (s: AppState) => void) => {
         const before = ref.current!;
