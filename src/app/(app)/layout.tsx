@@ -22,7 +22,7 @@ export default async function AppLayout({ children }: LayoutProps<"/">) {
   if (!loaded) redirect("/login");
   return (
     <DemoProvider hosted={loaded}>
-      <Shell user={{ email: member.email, garageName: member.garageName, platformAdmin: member.platformAdmin }}>{children}</Shell>
+      <Shell user={{ email: member.email, garageName: member.garageName, platformAdmin: member.platformAdmin, adminView: !!member.adminView }}>{children}</Shell>
     </DemoProvider>
   );
 }

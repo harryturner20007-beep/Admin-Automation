@@ -70,11 +70,6 @@ export function OverviewView() {
         </div>
       </section>
 
-      <nav aria-label="More" className="mt-8 flex flex-wrap gap-2 text-sm">
-        {[["/replies", "Replies"], ["/calendar", "Calendar"], ["/results", "Results"]].map(([href, label]) => (
-          <Link key={href} href={href} className={`inline-flex min-h-11 items-center rounded-lg px-3 font-medium text-accent ring-1 ring-line ring-inset hover:bg-white ${focusRing}`}>{label}</Link>
-        ))}
-      </nav>
     </div>
   );
 }

@@ -89,7 +89,7 @@ export function applyFollowUpSettings(state: AppState, garageId: string, input: 
   }
   // Unsent drafts follow the new schedule and wording. Anything already sent is left exactly as it was.
   for (const m of state.messages) {
-    if (m.garageId !== garageId || m.direction !== "outbound" || m.invoiceId || !PENDING.includes(m.status ?? "")) continue;
+    if (m.garageId !== garageId || m.direction !== "outbound" || m.invoiceId || m.manual || !PENDING.includes(m.status ?? "")) continue;
     const q = state.quotes.find((x) => x.id === m.quoteId)!;
     const w = stepWindow(q, garage, m.step!);
     const t = state.templates.find((x) => x.garageId === garageId && x.step === m.step)!;
@@ -115,7 +115,7 @@ export function setCustomerJobDescription(state: AppState, quoteId: string, text
   const garage = state.garages.find((g) => g.id === q.garageId)!;
   q.customerJobDescription = text.trim() || undefined;
   for (const m of state.messages) {
-    if (m.quoteId !== q.id || m.direction !== "outbound" || m.invoiceId || !PENDING.includes(m.status ?? "")) continue;
+    if (m.quoteId !== q.id || m.direction !== "outbound" || m.invoiceId || m.manual || !PENDING.includes(m.status ?? "")) continue;
     const t = state.templates.find((x) => x.garageId === q.garageId && x.step === m.step)!;
     m.body = renderTemplate(t, q, garage).text;
   }

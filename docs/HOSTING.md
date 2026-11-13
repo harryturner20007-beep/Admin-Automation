@@ -77,6 +77,13 @@ Nothing here was created for you: sign up, add payment details and keep the keys
 3. Sign in and go to `/admin`. Enter the garage's name and the owner's email. They get an invitation.
 4. Then follow `docs/ONBOARDING.md` with the owner.
 
+### Opening a garage's dashboard as platform admin
+
+At `/admin`, **Open dashboard** on any garage takes you into it as if you were its owner (8 hours, or until
+**Back to admin**). A banner shows you're in admin view, your changes are real, and each visit and save is
+recorded in that garage's audit log under your account. Needs migration `20261114000000_admin_access.sql`.
+Protect the admin account: long unique password, and turn on MFA for it in Supabase when you can.
+
 ## 5. Security model (what protects what)
 
 - **Isolation**: each garage's records are one row in `workspaces`; members read only their garage's rows

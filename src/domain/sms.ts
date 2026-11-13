@@ -54,7 +54,8 @@ export function manualWindow(now: string): { windowStart: string; windowEnd: str
   return p.hh >= 8 && now < end ? { windowStart: now, windowEnd: end } : null;
 }
 
-export type ManualTarget = { quoteId: string } | { invoiceId: string };
+/** `reply`: part of a conversation with the customer, so it doesn't use up a scheduled follow-up. */
+export type ManualTarget = { quoteId: string; reply?: boolean } | { invoiceId: string };
 
 /**
  * Turn a staff-typed text into an approved outbound message, ready for the send pipeline.
@@ -81,7 +82,9 @@ export function prepareManualSend(state: AppState, target: ManualTarget, body: s
   if (!normaliseUkMobile(quote.phone)) throw new Error("The customer's number isn't a UK mobile number");
   if (isSuppressed(state.suppressions, garage.id, quote.phone)) throw new Error("This customer opted out of texts (they can text START to opt back in)");
   if (!quote.eligibilityEvidenceRef?.trim()) throw new Error("There's no record of this customer agreeing to texts");
-  if (invoice ? invoice.status !== "unpaid" : quote.status !== "open") throw new Error(invoice ? "Only issued, unpaid invoices can be chased" : "Only open quotes can be followed up");
+  const isReply = "quoteId" in target && !!target.reply;
+  const allowed = invoice ? invoice.status === "unpaid" : quote.status === "open" || (isReply && quote.status === "booked");
+  if (!allowed) throw new Error(invoice ? "Only issued, unpaid invoices can be chased" : "Only open quotes can be followed up");
   // The same words to the same customer twice in 10 minutes is a double-click or a refresh, not a new text.
   const recent = state.messages.find((m) => m.manual && m.toPhone === quote.phone && m.body === text && Date.parse(state.now) - Date.parse(m.approvedAt ?? m.createdAt) < 10 * 60_000 && m.status !== "failed" && m.status !== "cancelled");
   if (recent) throw new Error("This exact text was just sent to this customer");
@@ -92,7 +95,7 @@ export function prepareManualSend(state: AppState, target: ManualTarget, body: s
   const keys: { key: string; step?: 1 | 2; invoiceStep?: InvoiceStep }[] = invoice
     ? ([0, 1, 2] as const).map((s) => ({ key: invoiceSendKey(garage.id, invoice.id, s), invoiceStep: s }))
     : ([1, 2] as const).map((s) => ({ key: sendKey(garage.id, quote.id, quote.revision, s), step: s }));
-  const slot = keys.find((k) => !state.messages.some((m) => m.sendKey === k.key && SENT.includes(m.status ?? "")));
+  const slot = isReply ? undefined : keys.find((k) => !state.messages.some((m) => m.sendKey === k.key && SENT.includes(m.status ?? "")));
   const existing = slot && state.messages.find((m) => m.sendKey === slot.key && (m.status === "awaiting_approval" || m.status === "approved"));
 
   const fields: Partial<Message> = {
@@ -120,7 +123,7 @@ export function prepareManualSend(state: AppState, target: ManualTarget, body: s
     revision: quote.revision,
     // No scheduled slot left: an extra text, keyed by the request so it still can't go twice.
     sendKey: slot?.key ?? `${garage.id}:${invoice?.id ?? quote.id}:manual:${requestKey}`,
-    step: invoice ? undefined : (slot?.step ?? 2),
+    step: invoice || isReply ? undefined : (slot?.step ?? 2),
     invoiceId: invoice?.id,
     invoiceStep: invoice ? (slot?.invoiceStep ?? 2) : undefined,
     body: text,

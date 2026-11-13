@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { AuthCard, ConnectNumberForm, CreateGarageForm } from "@/components/AuthForms";
 import { HOSTED } from "@/lib/mode";
-import { listGarages, signOut } from "@/server/auth";
+import { listGarages, openGarage, signOut } from "@/server/auth";
 import { currentMember } from "@/server/supabase";
 
 // Reads the session per request: never prerendered or cached.
@@ -28,6 +28,10 @@ export default async function AdminPage() {
               {g.members.map((x) => `${x.email} (${x.role}${x.confirmed ? "" : ", invited"})`).join(", ") || "No members yet"}
             </span>
                       <span className="block text-xs text-muted">{g.sms ? `Texts from ${g.sms.phone} (${g.sms.status})` : "No SMS number yet"}</span>
+            <form action={openGarage} className="mt-2">
+              <input type="hidden" name="garage" value={g.id} />
+              <button className="inline-flex min-h-11 items-center rounded-lg bg-accent px-4 text-sm font-medium text-white hover:bg-accent-hover">Open dashboard</button>
+            </form>
             <ConnectNumberForm garageId={g.id} current={g.sms?.phone ?? ""} />
           </li>
         ))}

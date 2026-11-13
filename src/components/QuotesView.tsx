@@ -6,7 +6,7 @@ import { useSearchParams } from "next/navigation";
 import { gsap } from "gsap";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { formatPounds } from "@/domain/engine";
-import { bucketOf, canChase, followUpFor, priorityCompare, updatedAt, type Bucket, type FollowUp } from "@/domain/queue";
+import { bucketOf, canChase, followUpFor, priorityCompare, staffReason, updatedAt, type Bucket, type FollowUp } from "@/domain/queue";
 import type { Quote } from "@/domain/types";
 import { formatLondon } from "@/domain/time";
 import { useAction, useDemo } from "@/demo/store";
@@ -20,8 +20,8 @@ import { Button, Icon, InlineFeedback, PlateLabel, StatusLabel } from "./ui";
 const NoFollowUpsDue = dynamic(() => import("./NoFollowUpsDue").then((m) => m.NoFollowUpsDue), { ssr: false });
 
 const CARDS: { id: Exclude<Bucket, "other">; label: string }[] = [
-  { id: "needs_follow_up", label: "Needs follow-up" },
-  { id: "awaiting_reply", label: "Awaiting reply" },
+  { id: "staff_needed", label: "Staff needed" },
+  { id: "awaiting_reply", label: "Follow-ups running" },
   { id: "accepted", label: "Accepted" },
 ];
 
@@ -82,7 +82,7 @@ export function QuotesView() {
   const { state, garageId } = useDemo();
   const params = useSearchParams();
   const fromLink = params.get("bucket"); // Overview links straight to a filtered list
-  const [bucket, setBucket] = useState<Exclude<Bucket, "other"> | null>(fromLink === "needs_follow_up" || fromLink === "awaiting_reply" || fromLink === "accepted" ? fromLink : null);
+  const [bucket, setBucket] = useState<Exclude<Bucket, "other"> | null>(fromLink === "staff_needed" || fromLink === "awaiting_reply" || fromLink === "accepted" ? fromLink : null);
   const [status, setStatus] = useState("all");
   const [sort, setSort] = useState<Sort>("priority");
   const [search, setSearch] = useState("");
@@ -108,6 +108,8 @@ export function QuotesView() {
     .filter((q) => !term || [q.customerName, q.registration ?? "", q.job, q.customerJobDescription ?? "", q.vehicle].some((v) => squash(v).includes(term)))
     .sort(compare);
   const filtered = !!bucket || status !== "all" || !!term;
+  // Customers whose text is waiting for an answer: shown at the top of the page until someone deals with it.
+  const replied = quotes.filter((q) => q.status === "open" && (q.unresolvedReply || q.booking === "requested"));
 
   const open = (id: string) => {
     setOpenIndex(Math.max(0, visible.findIndex((q) => q.id === id)));
@@ -172,7 +174,7 @@ export function QuotesView() {
         <p className="mt-1 text-sm text-muted">Add a quote the garage has sent, and it appears here ready to chase.</p>
         <Button className="hover-turn mt-4" variant="primary" onClick={() => setAdding(true)}><Icon name="plus" className="nudge-icon h-4 w-4" /> Add quote</Button>
       </Rise>
-    ) : bucket === "needs_follow_up" && !term && status === "all" ? (
+    ) : bucket === "staff_needed" && !term && status === "all" ? (
       <NoFollowUpsDue onViewAll={clearFilters} />
     ) : (
       <Rise className="px-6 py-12 text-center">
@@ -199,6 +201,18 @@ export function QuotesView() {
         </div>
 
         <AutomationStrip play={intro} />
+
+        {replied.length > 0 && (
+          <div role="alert" className="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-accent bg-selected px-4 py-3 text-sm text-text">
+            <Icon name="inbox" className="h-5 w-5 text-accent" />
+            <span className="font-semibold">{replied.length === 1 ? "1 customer has replied and needs an answer:" : `${replied.length} customers have replied and need an answer:`}</span>
+            {replied.map((q) => (
+              <button key={q.id} onClick={() => open(q.id)} className={`inline-flex min-h-11 items-center rounded-lg bg-white px-3 font-medium text-accent ring-1 ring-line ring-inset hover:bg-canvas ${focusRing}`}>
+                {q.customerName}
+              </button>
+            ))}
+          </div>
+        )}
 
         {/* Summary cards (filters) */}
         <section aria-label="Summary" className="mt-6">
@@ -298,6 +312,7 @@ export function QuotesView() {
                           </td>
                           <td className="px-4 py-3 align-middle">
                             <span className="line-clamp-2 max-w-[320px] text-text">{q.job}</span>
+                            {staffReason(state, q) && <span className="mt-1 block max-w-[320px] text-xs text-attention">{staffReason(state, q)}</span>}
                           </td>
                           <td className="px-4 py-3 text-right align-middle font-medium text-text tabular-nums">{formatPounds(q.amountPence)}</td>
                           <td className="px-4 py-3 align-middle"><StatusLabel tone={st.tone}>{st.label}</StatusLabel></td>
@@ -324,6 +339,7 @@ export function QuotesView() {
                       </div>
                       <button data-row-open={q.id} aria-current={on ? "true" : undefined} onClick={() => open(q.id)} className={`mt-2 block max-w-full truncate text-left font-medium text-text ${focusRing}`}>{q.customerName}</button>
                       <p className="line-clamp-2 text-sm text-muted">{q.job}</p>
+                      {staffReason(state, q) && <p className="mt-1 text-xs text-attention">{staffReason(state, q)}</p>}
                       <div className="mt-2 flex flex-wrap items-center gap-2 text-sm">
                         <StatusLabel tone={st.tone}>{st.label}</StatusLabel>
                         <span className={followTone(fu)}>{fu.label === "—" ? "No follow-up scheduled" : fu.label}</span>

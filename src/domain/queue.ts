@@ -30,14 +30,50 @@ export function followUpFor(state: AppState, q: Quote): FollowUp {
   return { kind: "upcoming", label: formatLondonDate(`${date}T12:00:00Z`).replace(/^\w+ /, ""), date }; // "18 Nov"
 }
 
-export type Bucket = "needs_follow_up" | "awaiting_reply" | "accepted" | "other";
+export type Bucket = "staff_needed" | "awaiting_reply" | "accepted" | "other";
 
-/** Summary-card membership. Every open, contactable quote is either needing follow-up or awaiting the customer. */
+const shortDay = (iso: string) => formatLondonDate(iso).replace(/^\w+ /, ""); // "6 Nov"
+
+/**
+ * Why an open quote needs a person, in one sentence; null while the automatic follow-ups are still doing
+ * the work (or staff have set a later date to chase). This is what puts a quote in "Staff needed".
+ */
+export function staffReason(state: AppState, q: Quote): string | null {
+  if (q.status !== "open") return null;
+  const garage = state.garages.find((g) => g.id === q.garageId)!;
+  const texts = state.messages.filter((m) => m.quoteId === q.id && m.direction === "outbound" && !m.invoiceId);
+  const task = state.tasks.find((t) => t.status === "open" && t.quoteIds.includes(q.id) && t.kind !== "opt_out_notice" && t.kind !== "reconcile_send");
+  if (isSuppressed(state.suppressions, q.garageId, q.phone)) return "Customer opted out of texts. Call them instead.";
+  if (q.booking === "requested") return "Customer wants to book. Offer a date or book them in.";
+  if (q.unresolvedReply || task) return "Customer replied. Read it and answer.";
+  if (texts.some((m) => m.status === "needs_reconciliation")) return "A text may not have sent. Check it.";
+  if (q.contactPendingAt) return "You called or texted. Record what the customer said.";
+  const draft = texts.find((m) => m.status === "awaiting_approval");
+  if (draft) return `Follow-up ${draft.step} is written and waiting for your approval.`;
+  const today = ukDate(state.now);
+  if (q.reminderDate && q.reminderDate > today) return null; // staff chose when to chase next
+  const view = quoteFollowUpView(state, q);
+  const sent = texts.filter((m) => m.sentAt).sort((a, b) => a.sentAt!.localeCompare(b.sentAt!));
+  if (!view.nextStep) {
+    const last = sent.at(-1);
+    const done = sent.length >= 2 ? "Both follow-ups sent" : sent.length === 1 ? "The follow-up was sent" : "No automatic follow-ups left";
+    const since = last ? ` (last on ${shortDay(last.sentAt!)}), no reply` : "";
+    return `${done}${since}. ${q.reminderDate ? `Your reminder to chase was ${shortDay(`${q.reminderDate}T12:00:00Z`)}. ` : ""}Call or text the customer.`;
+  }
+  if (q.reminderDate) return `Your reminder to chase was ${shortDay(`${q.reminderDate}T12:00:00Z`)}. Call or text the customer.`;
+  if (garage.mode === "off") return "Automatic follow-ups are switched off. Chase by hand or turn them on in Settings.";
+  if (garage.paused) return "All sending is paused for the garage.";
+  if (!q.eligibilityEvidenceRef?.trim()) return "No record of the customer agreeing to texts, so none are sent. Call them.";
+  if (q.paused) return "Automatic texts are paused for this quote.";
+  if (view.blockers.includes("status_stale")) return `Follow-up ${view.nextStep} is waiting: confirm the quote is still open.`;
+  return null;
+}
+
+/** Summary-card membership. An open quote is either with the automatic follow-ups or needs a person. */
 export function bucketOf(state: AppState, q: Quote): Bucket {
   if (q.status === "booked" || q.status === "completed") return "accepted";
-  if (q.status !== "open" || isSuppressed(state.suppressions, q.garageId, q.phone)) return "other";
-  const k = followUpFor(state, q).kind;
-  return k === "overdue" || k === "today" || k === "outcome_needed" || k === "reply" ? "needs_follow_up" : "awaiting_reply";
+  if (q.status !== "open") return "other";
+  return staffReason(state, q) ? "staff_needed" : "awaiting_reply";
 }
 
 /** Open, contactable quotes can be chased; everything else is a completed outcome to view. */

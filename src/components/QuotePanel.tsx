@@ -8,6 +8,7 @@ import { JOB_STATUS_LABEL, jobForQuote, setCustomerBilling } from "@/domain/jobs
 import { GATE_REASON_TEXT } from "@/domain/gate";
 import {
   canChase,
+  staffReason,
   composeMessage,
   followUpFor,
   MESSAGE_OPTIONS,
@@ -27,6 +28,7 @@ import { useAction, useDemo } from "@/demo/store";
 import { ActionButton } from "./ActionButton";
 import { BookJobForm } from "./BookJobForm";
 import { SmsComposer } from "./SmsComposer";
+import { ReplyBox } from "./ReplyBox";
 import { deliveryLabel } from "@/domain/sms";
 import { Progress } from "./workflow";
 import { lineReveal, motionAllowed, RISE, Rise, Words } from "./motion";
@@ -168,6 +170,7 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
   };
   const row = quoteRow(state, q);
   const job = jobForQuote(state, q.id);
+  const reason = staffReason(state, q);
   const status = statusOf(state, q);
   const fu = followUpFor(state, q);
   const chase = canChase(state, q);
@@ -271,6 +274,18 @@ export function QuotePanel({ quoteId, animateIn, onClose, onSaved, onNext, hasNe
         </Section>
 
         {/* 5. Message composer */}
+        {reason && (
+          <div role="status" className="mx-6 mb-4 rounded-lg border border-attention/30 bg-attention-bg px-3 py-2 text-sm text-attention">
+            <span className="font-medium">Staff needed:</span> {reason}
+          </div>
+        )}
+
+        {chase && !row.suppressed && (
+          <Section title="Messages with the customer">
+            <ReplyBox q={q} />
+          </Section>
+        )}
+
         {chase && !row.suppressed && (
           <Section title="Follow-up message">
             <Choice

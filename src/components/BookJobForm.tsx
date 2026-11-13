@@ -11,10 +11,15 @@ import { Button, Field, InlineFeedback, inputClass } from "./ui";
 
 /**
  * "Book job" from a quote: details come from the quote; staff add the slot and notes and confirm the
- * customer accepted. Saving creates the job (or returns the existing one) and opens it.
+ * customer accepted. Saving creates the job (or returns the existing one).
+ *
+ * By default this stays put: the quote's own status flips to "booked", so whichever screen it's shown
+ * on (Quotes, Replies) just re-renders to its booked state and the quote drops off that screen's open
+ * list. Pass `goToJob` only when the form is used from the Jobs screen itself, where jumping to the new
+ * job's panel is the point.
  */
-export function BookJobForm({ q, onCancel, customerAccepted = false }: { q: Quote; onCancel: () => void; customerAccepted?: boolean }) {
-  const { state, staff, act } = useDemo();
+export function BookJobForm({ q, onCancel, customerAccepted = false, goToJob = false }: { q: Quote; onCancel: () => void; customerAccepted?: boolean; goToJob?: boolean }) {
+  const { state, staff, act, textBookingConfirmation, notify } = useDemo();
   const router = useRouter();
   const save = useAction();
   const [when, setWhen] = useState(`${q.bookedFor || addDaysYmd(ukDate(state.now), 1)}T09:00`);
@@ -25,7 +30,7 @@ export function BookJobForm({ q, onCancel, customerAccepted = false }: { q: Quot
   const [errors, setErrors] = useState<Partial<Record<keyof BookingInput, string>>>({});
 
   const submit = () =>
-    save.run(() => {
+    save.run(async () => {
       const input: BookingInput = {
         startAt: fromLondonInput(when),
         durationMins: duration.trim() ? Math.round(Number(duration) * 60) : undefined,
@@ -43,8 +48,11 @@ export function BookJobForm({ q, onCancel, customerAccepted = false }: { q: Quot
         jobId = job.id;
         jobTab = ukDate(job.startAt) > ukDate(s.now) ? "upcoming" : "today";
       });
-      router.push(`/jobs?tab=${jobTab}&job=${encodeURIComponent(jobId)}`);
-    }, "Booked");
+      const texted = await textBookingConfirmation(q, input.startAt);
+      notify(`${q.customerName} booked in. ${texted}`, [q.id]); // the form closes once booked, so say it in the toast
+      if (goToJob) router.push(`/jobs?tab=${jobTab}&job=${encodeURIComponent(jobId)}`);
+      return texted;
+    }, (r) => `Booked. ${r}`);
 
   return (
     <form

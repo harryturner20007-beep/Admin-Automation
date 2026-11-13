@@ -170,3 +170,67 @@ describe("repeat sends", () => {
     expect(() => prepareManualSend(s, { quoteId: "q_ava" }, "Hi Ava", "r3", DEMO_STAFF)).not.toThrow();
   });
 });
+
+describe("answering a customer and booking from the quote", () => {
+  it("a reply text doesn't use up a follow-up, and the offered time books the job", async () => {
+    const { bookJob, offerSlots, offerText } = await import("@/domain/jobs");
+    const chloe = q("q_chloe"); // replied with a price question; follow-up 1 sent, 2 still to go
+    const m = prepareManualSend(s, { quoteId: "q_chloe", reply: true }, "Hi Chloe, yes that includes the pump.", "rep1", DEMO_STAFF);
+    expect(m.step).toBeUndefined();
+    expect(m.sendKey).toContain("manual");
+    const provider = new MockSmsProvider();
+    await dispatchApproved(s, provider); // goes even though her reply is still marked waiting
+    expect(provider.sent.map((x) => x.to)).toEqual([chloe.phone]);
+
+    expect(() => offerSlots(s, "q_chloe", ["2026-11-10T09:00:00.000Z"], DEMO_STAFF)).toThrow(/future/);
+    offerSlots(s, "q_chloe", ["2026-11-17T09:00:00.000Z", "2026-11-18T14:00:00.000Z"], DEMO_STAFF);
+    expect(offerText(chloe, chloe.offeredSlots!)).toBe("Hi Chloe, we can book your timing belt and water pump in for Tue 17 Nov, 09:00 or Wed 18 Nov, 14:00. Reply with the one that suits and we'll book you in.");
+    const job = bookJob(s, "q_chloe", { startAt: chloe.offeredSlots![1], notes: "", customerConfirmation: "Chose this time by text" }, DEMO_STAFF);
+    expect(job).toMatchObject({ status: "booked", startAt: "2026-11-18T14:00:00.000Z" });
+    expect(chloe).toMatchObject({ status: "booked", unresolvedReply: false, offeredSlots: undefined });
+    expect(s.tasks.filter((t) => t.status === "open" && t.quoteIds.includes("q_chloe"))).toHaveLength(0); // alert cleared
+  });
+});
+
+describe("booking confirmation text", () => {
+  it("goes to the customer after booking, with the work, date and time", async () => {
+    const { bookJob, confirmationText } = await import("@/domain/jobs");
+    bookJob(s, "q_ava", { startAt: "2026-11-12T09:00:00.000Z", notes: "", customerConfirmation: "ok" }, DEMO_STAFF);
+    const body = confirmationText(q("q_ava"), "2026-11-12T09:00:00.000Z");
+    expect(body).toBe("Hi Ava, you're booked in for your front brake pads and discs on Thu 12 Nov, 09:00. See you then. Reply here if you need to change it.");
+    const m = prepareManualSend(s, { quoteId: "q_ava", reply: true }, body, "c1", DEMO_STAFF); // quote is now booked
+    const provider = new MockSmsProvider();
+    await dispatchApproved(s, provider);
+    expect(provider.sent.map((x) => x.body)).toEqual([body]);
+    expect(m.status).toBe("sent");
+    // A scheduled follow-up still can't go to a booked quote.
+    expect(() => prepareManualSend(s, { quoteId: "q_ava" }, "Any questions?", "c2", DEMO_STAFF)).toThrow(/open quotes/);
+  });
+});
+
+describe("a customer reply pauses automatic follow-ups until staff answer", () => {
+  it("holds a queued follow-up while the reply waits, then sends it once staff have replied", async () => {
+    const { applyFollowUpSettings } = await import("@/domain/settings");
+    const g = s.garages[0];
+    applyFollowUpSettings(s, DEMO_GARAGE_ID, { mode: "automatic", followUps: g.followUps, templates: { 1: s.templates[0].body, 2: s.templates[1].body } }, DEMO_STAFF);
+    s.now = "2026-11-11T09:00:00.000Z";
+    runFollowUpCheck(s);
+    s.now = "2026-11-11T10:00:00.000Z";
+    runFollowUpCheck(s); // Ava's follow-up 1 queued for 10:00
+    const ava = q("q_ava");
+    reply(ava.phone, "Can you do it cheaper?");
+    const provider = new MockSmsProvider();
+    await dispatchApproved(s, provider);
+    expect(provider.sent.filter((m) => m.to === ava.phone)).toHaveLength(0); // paused while the reply waits
+    expect(texts("q_ava")[0].status).toBe("approved"); // held, not cancelled
+
+    s.now = "2026-11-11T18:00:00.000Z"; // staff answer after closing
+    const task = s.tasks.find((t) => t.status === "open" && t.quoteIds.includes("q_ava"))!;
+    resolveTask(s, task.id, "resume", DEMO_STAFF);
+    runFollowUpCheck(s); // the held text moves to the next opening
+    s.now = "2026-11-12T08:30:00.000Z";
+    runFollowUpCheck(s);
+    await dispatchApproved(s, provider);
+    expect(provider.sent.filter((m) => m.to === ava.phone)).toHaveLength(1); // resumed
+  });
+});

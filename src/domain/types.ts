@@ -128,6 +128,7 @@ export type Quote = {
   bookedFor?: string; // "YYYY-MM-DD" (UK date) the job is booked in for, once staff set it
   completedAt?: string;
   jobValuePence?: number;
+  offeredSlots?: string[]; // booking times (ISO) staff offered by text; one click books the one the customer picks
   email?: string; // customer billing details, copied onto the job's invoice
   billingAddress?: string;
 };

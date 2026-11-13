@@ -5,7 +5,7 @@
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { newWorkspace } from "@/domain/workspace";
-import { adminClient, currentMember, REMEMBER_COOKIE, userClient } from "./supabase";
+import { ADMIN_GARAGE_COOKIE, adminClient, currentMember, REMEMBER_COOKIE, userClient } from "./supabase";
 
 export type FormState = { error?: string; ok?: string } | undefined;
 
@@ -63,7 +63,9 @@ export async function setPassword(_: FormState, form: FormData): Promise<FormSta
 export async function signOut(form: FormData) {
   const supabase = await userClient();
   await supabase.auth.signOut({ scope: form.get("everywhere") === "on" ? "global" : "local" });
-  (await cookies()).delete(REMEMBER_COOKIE);
+  const store = await cookies();
+  store.delete(REMEMBER_COOKIE);
+  store.delete(ADMIN_GARAGE_COOKIE);
   redirect("/login");
 }
 
@@ -129,4 +131,22 @@ export async function inviteColleague(_: FormState, form: FormData): Promise<For
   if (!isEmail(address)) return { error: "Enter their email address." };
   const problem = await invite(m.garageId, address, "staff", String(form.get("name") ?? "").trim().slice(0, 80));
   return problem ? { error: problem } : { ok: `Invitation emailed to ${address}.` };
+}
+
+/** Platform admin opens a garage's dashboard (to support or set it up). Recorded in that garage's audit log. */
+export async function openGarage(form: FormData) {
+  const m = await requireAdmin();
+  const id = String(form.get("garage") ?? "");
+  const admin = adminClient();
+  const { data: g } = await admin.from("garages").select("id").eq("id", id).maybeSingle();
+  if (!g) throw new Error("Garage not found");
+  await admin.from("audit_log").insert({ garage_id: g.id, user_id: m.userId, op: "platform admin opened the dashboard", version: 0 });
+  (await cookies()).set(ADMIN_GARAGE_COOKIE, g.id, { httpOnly: true, sameSite: "lax", secure: process.env.NODE_ENV === "production", path: "/", maxAge: 8 * 3600 });
+  redirect("/overview");
+}
+
+/** Back to the admin screen. */
+export async function leaveGarage() {
+  (await cookies()).delete(ADMIN_GARAGE_COOKIE);
+  redirect("/admin");
 }

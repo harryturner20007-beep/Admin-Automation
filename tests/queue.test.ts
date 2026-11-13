@@ -1,8 +1,9 @@
+import { runFollowUpCheck } from "@/domain/engine";
 import { beforeEach, describe, expect, it } from "vitest";
 import { advanceDemoClock } from "@/domain/automation";
 import { applyFollowUpSettings } from "@/domain/settings";
 import { DEFAULT_TEMPLATES } from "@/domain/templates";
-import { bucketOf, composeMessage, followUpFor, priorityCompare, recordContactAttempt, recordOutcome, reminderDate } from "@/domain/queue";
+import { bucketOf, staffReason, composeMessage, followUpFor, priorityCompare, recordContactAttempt, recordOutcome, reminderDate } from "@/domain/queue";
 import { DAY_MS } from "@/domain/time";
 import type { AppState } from "@/domain/types";
 import { buildSeedState, DEMO_GARAGE_ID, DEMO_STAFF } from "@/demo/seed";
@@ -20,14 +21,26 @@ describe("chase queue", () => {
   it("buckets the seeded quotes from the real records", () => {
     const b = Object.fromEntries(s.quotes.filter((x) => ORIGINAL.includes(x.id)).map((x) => [x.id, bucketOf(s, x)]));
     expect(b).toEqual({
-      q_ava: "needs_follow_up", // follow-up 1 due today
-      q_ben: "needs_follow_up", // booking request waiting
-      q_chloe: "needs_follow_up", // price question waiting
-      q_dan: "other", // opted out
+      q_ava: "awaiting_reply", // follow-up 1 due today: the automatic follow-ups are still running
+      q_ben: "staff_needed", // booking request waiting
+      q_chloe: "staff_needed", // price question waiting
+      q_dan: "staff_needed", // opted out of texts: someone has to call
       q_emma: "accepted", // booked
       q_fay: "accepted", // job completed and invoiced
     });
     expect(followUpFor(s, q("q_ava"))).toMatchObject({ kind: "today", label: "Today" });
+  });
+
+  it("Staff needed says why for each quote", () => {
+    const why = (id: string) => staffReason(s, q(id));
+    expect(why("q_olivia")).toBe("Both follow-ups sent (last on 3 Nov), no reply. Your reminder to chase was 10 Nov. Call or text the customer.");
+    expect(why("q_chloe")).toBe("Customer replied. Read it and answer.");
+    expect(why("q_ben")).toBe("Customer wants to book. Offer a date or book them in.");
+    expect(why("q_dan")).toMatch(/opted out/);
+    expect(why("q_sophie")).toBeNull(); // staff set a reminder for 16 Nov: nothing to do until then
+    expect(why("q_tom")).toBeNull(); // follow-up 1 still to go
+    runFollowUpCheck(s);
+    expect(why("q_tom")).toBe("Follow-up 1 is written and waiting for your approval."); // Draft mode
   });
 
   it("Needs time sets a reminder that becomes overdue, and holds automatic follow-ups until then", async () => {
@@ -39,7 +52,7 @@ describe("chase queue", () => {
     const provider = new MockSmsProvider();
     s.now = new Date(Date.parse(s.now) + 3 * DAY_MS).toISOString(); // Sat 14 Nov, no checks run in between
     expect(followUpFor(s, q("q_ava"))).toMatchObject({ kind: "overdue", label: "2 days overdue" });
-    expect(bucketOf(s, q("q_ava"))).toBe("needs_follow_up");
+    expect(bucketOf(s, q("q_ava"))).toBe("staff_needed");
     await advanceDemoClock(s, 15 * 60 * 1000, provider);
     expect(provider.sent.filter((m) => m.to === q("q_ava").phone)).toHaveLength(0); // step 1 window long gone; nothing sent late
   });

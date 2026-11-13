@@ -209,7 +209,7 @@ export function JobsView() {
       {!job && bookingQuote && (
         <SidePanel id="schedule-job" reg={bookingQuote.registration} title={`Schedule ${bookingQuote.customerName}`} onClose={() => setParams({ quote: null })}>
           <div className="p-6">
-            <BookJobForm key={bookingQuote.id} q={bookingQuote} onCancel={() => setParams({ quote: null })} />
+            <BookJobForm key={bookingQuote.id} q={bookingQuote} goToJob onCancel={() => setParams({ quote: null })} />
           </div>
         </SidePanel>
       )}

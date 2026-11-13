@@ -35,7 +35,7 @@ export async function proxy(request: NextRequest) {
 
   // Server actions check the session themselves and answer "signed out", which the save queue shows;
   // redirecting them would look like a network error instead.
-  if (!data?.claims && !PUBLIC.some((p) => path.startsWith(p)) && !request.headers.has("next-action")) {
+  if (!data?.claims && path !== "/" && !PUBLIC.some((p) => path.startsWith(p)) && !request.headers.has("next-action")) {
     const login = request.nextUrl.clone();
     login.pathname = "/login";
     login.search = "";

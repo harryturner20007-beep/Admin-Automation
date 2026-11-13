@@ -11,7 +11,7 @@ import { useDemo } from "@/demo/store";
 import { motionAllowed } from "./motion";
 import { ResetDemo } from "./ResetDemo";
 import { Toast } from "./Toast";
-import { signOut } from "@/server/auth";
+import { leaveGarage, signOut } from "@/server/auth";
 import { Icon, type IconName } from "./ui";
 
 // The workflow: quote → booked job → completed job → invoice → payment.
@@ -20,16 +20,13 @@ const TABS: { href: string; label: string; icon: IconName }[] = [
   { href: "/quotes", label: "Quotes", icon: "quotes" },
   { href: "/jobs", label: "Jobs", icon: "wrench" },
   { href: "/invoices", label: "Invoices", icon: "pound" },
-  { href: "/settings", label: "Settings", icon: "sliders" },
-];
-// Secondary views, one click from the sidebar (and from Overview on phones).
-const MORE: { href: string; label: string; icon: IconName }[] = [
   { href: "/replies", label: "Replies", icon: "inbox" },
   { href: "/calendar", label: "Calendar", icon: "calendar" },
   { href: "/results", label: "Results", icon: "results" },
+  { href: "/settings", label: "Settings", icon: "sliders" },
 ];
 
-type User = { email: string; garageName: string; platformAdmin: boolean };
+type User = { email: string; garageName: string; platformAdmin: boolean; adminView?: boolean };
 
 function SyncBadge() {
   const { sync, hosted } = useDemo();
@@ -118,25 +115,6 @@ export function Shell({ children, user }: { children: ReactNode; user?: User }) 
             );
           })}
         </nav>
-        <nav aria-label="More" className="flex flex-col gap-1 border-t border-line px-2 py-3">
-          {MORE.map((t) => {
-            const active = path.startsWith(t.href);
-            return (
-              <Link
-                key={t.href}
-                href={t.href}
-                aria-current={active ? "page" : undefined}
-                aria-label={`${t.label}${t.href === "/replies" && unread ? `, ${unread} unread` : ""}`}
-                title={t.label}
-                className={`relative flex min-h-11 items-center justify-center gap-3 rounded-lg px-3 text-sm font-medium transition-colors desk:justify-start ${focus} ${active ? "bg-selected text-accent" : "text-muted hover:bg-canvas hover:text-text"}`}
-              >
-                <Icon name={t.icon} className="h-5 w-5" />
-                <span className="hidden flex-1 desk:inline">{t.label}</span>
-                {badge(t, true)}
-              </Link>
-            );
-          })}
-        </nav>
         <div className="flex flex-col gap-1 border-t border-line px-2 py-3">
           <button
             aria-pressed={garage.paused}
@@ -179,11 +157,11 @@ export function Shell({ children, user }: { children: ReactNode; user?: User }) 
             <Icon name="pause" className="h-5 w-5" />
           </button>
         </div>
-        <nav aria-label="Main" className="flex gap-1 px-2 pb-2">
+        <nav aria-label="Main" className="flex gap-1 overflow-x-auto px-2 pb-2">
           {TABS.map((t) => {
             const active = path.startsWith(t.href);
             return (
-              <Link key={t.href} href={t.href} aria-current={active ? "page" : undefined} className={`flex min-h-11 min-w-0 flex-1 items-center justify-center gap-1 rounded-lg text-xs font-medium min-[440px]:gap-1.5 min-[440px]:text-sm ${focus} ${active ? "bg-selected text-accent" : "text-muted hover:bg-canvas"}`}>
+              <Link key={t.href} href={t.href} aria-current={active ? "page" : undefined} className={`flex min-h-11 shrink-0 items-center justify-center gap-1 rounded-lg px-3 text-sm font-medium ${focus} ${active ? "bg-selected text-accent" : "text-muted hover:bg-canvas"}`}>
                 <Icon name={t.icon} className="hidden h-4 w-4 min-[440px]:block" />
                 {t.label}
                 {badge(t)}
@@ -193,6 +171,13 @@ export function Shell({ children, user }: { children: ReactNode; user?: User }) 
           })}
         </nav>
       </header>
+
+      {user?.adminView && (
+        <form action={leaveGarage} role="status" className="flex flex-wrap items-center justify-center gap-3 border-b border-attention/30 bg-attention-bg px-4 py-2 text-sm text-attention">
+          Platform admin: you are working in {user.garageName}&apos;s dashboard. Changes you make are real and recorded.
+          <button className={`min-h-8 rounded-lg bg-white px-3 font-medium text-text ring-1 ring-line ring-inset hover:bg-canvas ${focus}`}>Back to admin</button>
+        </form>
+      )}
 
       {hosted && (
         <div className="flex min-h-8 items-center justify-end border-b border-line bg-white px-4 md:px-8">

@@ -296,11 +296,13 @@ export async function dispatchApproved(state: AppState, provider: SmsProvider): 
       : checkSendGate({ now: state.now, garage, quote, template: state.templates.find((t) => t.id === m.templateId), suppressions: state.suppressions, window, message: m });
     // A text staff typed and sent on purpose skips the automation-only rules (template, schedule, mode, pauses
     // for automatic texts, a waiting reply) but never the safety ones (opt-out, consent, status, quiet hours).
-    const reasons = m.manual ? all.filter((r) => MANUAL_CHECKS.includes(r)) : all;
+    // A reply to a booked customer (e.g. the booking confirmation) isn't held back for "not open".
+    const isReply = m.manual && !m.step && !m.invoiceId;
+    const reasons = m.manual ? all.filter((r) => MANUAL_CHECKS.includes(r) && !(r === "status_not_open" && isReply && quote.status === "booked")) : all;
 
     // Outside opening hours, or waiting on something staff can fix (a stale status, a reply on an invoice
     // customer): the text stays queued and goes at the next opportunity, rather than expiring or losing approval.
-    const hold: GateReason[] = invoice ? ["before_window", "window_expired", "unresolved_reply"] : ["before_window", "window_expired", "status_stale"];
+    const hold: GateReason[] = invoice ? ["before_window", "window_expired", "unresolved_reply"] : ["before_window", "window_expired", "status_stale", "unresolved_reply"];
     if (reasons.length && reasons.every((r) => hold.includes(r))) {
       m.status = "approved";
       m.claimedAt = undefined;
@@ -499,7 +501,8 @@ export function receiveInbound(state: AppState, e: { eventId: string; from: stri
 
   for (const q of candidates) {
     q.unresolvedReply = true;
-    if (q.status === "open") cancelPendingFor(state, q.id, "unresolved_reply"); // invoice texts are held by the gate instead, so they resume
+    // Queued texts are held, not cancelled: the send gate stops them while the reply waits, and they go at the
+    // next opening once staff have answered.
   }
 
   if (candidates.length > 1) {

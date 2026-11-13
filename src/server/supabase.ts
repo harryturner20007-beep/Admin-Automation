@@ -50,7 +50,10 @@ export function adminClient() {
   return createClient(SUPABASE_URL, key, { auth: { persistSession: false, autoRefreshToken: false } });
 }
 
-export type Member = { userId: string; email: string; garageId: string; garageName: string; role: "owner" | "staff"; displayName: string; platformAdmin: boolean };
+export type Member = { userId: string; email: string; garageId: string; garageName: string; role: "owner" | "staff"; displayName: string; platformAdmin: boolean; adminView?: boolean };
+
+/** Which garage a platform admin has opened. Only honoured after the admin check below, on every request. */
+export const ADMIN_GARAGE_COOKIE = "gm-admin-garage";
 
 /** The signed-in user and their garage, checked with Supabase Auth (not just read from the cookie). */
 export async function currentMember(): Promise<Member | null> {
@@ -61,6 +64,13 @@ export async function currentMember(): Promise<Member | null> {
     supabase.from("memberships").select("garage_id, role, display_name, garages(name)").eq("user_id", data.user.id).limit(1).maybeSingle(),
     supabase.from("platform_admins").select("user_id").eq("user_id", data.user.id).maybeSingle(),
   ]);
+  // A platform admin who has opened a garage works in it as an owner. The cookie alone grants nothing:
+  // it is only read after the database has confirmed this user is a platform admin.
+  const opened = admin ? (await cookies()).get(ADMIN_GARAGE_COOKIE)?.value : undefined;
+  if (opened && /^[0-9a-f-]{36}$/.test(opened)) {
+    const { data: g } = await adminClient().from("garages").select("id, name").eq("id", opened).maybeSingle();
+    if (g) return { userId: data.user.id, email: data.user.email ?? "", garageId: g.id, garageName: g.name, role: "owner", displayName: `${data.user.email} (platform admin)`, platformAdmin: true, adminView: true };
+  }
   if (!m) return admin ? { userId: data.user.id, email: data.user.email ?? "", garageId: "", garageName: "", role: "staff", displayName: data.user.email ?? "", platformAdmin: true } : null;
   const garages = m.garages as unknown as { name: string } | null;
   return {

@@ -13,7 +13,7 @@ export const PAYMENT_TERMS_DAYS = 7;
 export const INVOICE_STEP_LABEL: Record<InvoiceStep, string> = { 0: "Invoice text", 1: "Payment reminder 1", 2: "Payment reminder 2" };
 
 /** What an outbound text is, in staff terms ("Follow-up 1", "Invoice text", "Payment reminder 2"). */
-export const messageLabel = (m: Message) => (m.invoiceId ? INVOICE_STEP_LABEL[m.invoiceStep ?? 0] : `Follow-up ${m.step}`);
+export const messageLabel = (m: Message) => (m.invoiceId ? INVOICE_STEP_LABEL[m.invoiceStep ?? 0] : m.step ? `Follow-up ${m.step}` : "Text");
 
 const PENDING = new Set(["awaiting_approval", "approved"]);
 const SENT = new Set(["sent", "delivered"]);

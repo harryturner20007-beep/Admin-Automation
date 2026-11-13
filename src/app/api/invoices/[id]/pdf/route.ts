@@ -15,7 +15,9 @@ export async function GET(_: Request, ctx: RouteContext<"/api/invoices/[id]/pdf"
   const { id } = await ctx.params;
   const m = await currentMember();
   if (!m?.garageId) return NextResponse.json({ error: "Sign in again" }, { status: 401, headers: PRIVATE });
-  const supabase = await userClient();
+  // Members read under row-level security. A platform admin viewing a garage isn't a member, so their read
+  // uses the server key, still limited to the garage the session resolved to.
+  const supabase = m.adminView ? adminClient() : await userClient();
   const { data: row } = await supabase.from("issued_invoices").select("garage_id, id, number, snapshot, pdf_path").eq("id", id).eq("garage_id", m.garageId).maybeSingle();
   if (!row) return NextResponse.json({ error: "Invoice not found" }, { status: 404, headers: PRIVATE });
 

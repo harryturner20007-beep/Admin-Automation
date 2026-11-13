@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { currentMember } from "@/server/supabase";
 import { AuthCard, LoginForm } from "@/components/AuthForms";
 import { HOSTED } from "@/lib/mode";
 
@@ -16,6 +18,8 @@ export default async function LoginPage({ searchParams }: PageProps<"/login">) {
       </AuthCard>
     );
   }
+  const member = await currentMember();
+  if (member) redirect(member.garageId ? "/overview" : "/admin"); // already signed in
   const next = typeof p.next === "string" ? p.next : "/overview";
   const notice = p.expired ? "Your session ended. Sign in again to carry on." : p.link === "expired" ? "That link has expired or was already used. Ask for a new one." : undefined;
   return (

@@ -58,6 +58,7 @@ export function bookJob(state: AppState, quoteId: string, input: BookingInput, s
   if (errors.length) throw new Error(errors[0]);
   if (q.status === "open") confirmBooking(state, q.id, staffName); // records acceptance, stops follow-ups, resolves reply tasks
   q.bookedFor = ukDate(input.startAt);
+  q.offeredSlots = undefined;
   const charges = acceptedLinesFromQuote(state, q);
   const job: Job = {
     id: newId(state, "job"),
@@ -228,3 +229,25 @@ export function progressFor(state: AppState, quoteId: string): { steps: Progress
     ],
   };
 }
+
+/** Record the booking times staff are offering the customer (1 to 3, all in the future). */
+export function offerSlots(state: AppState, quoteId: string, slots: string[], staffName: string) {
+  const q = quoteOf(state, quoteId);
+  if (q.status !== "open") throw new Error("Only open quotes can be offered dates");
+  const clean = [...new Set(slots.filter(Boolean))].sort();
+  if (!clean.length || clean.length > 3) throw new Error("Offer one to three dates");
+  if (clean.some((x) => !validStart(x) || Date.parse(x) <= Date.parse(state.now))) throw new Error("Choose dates in the future");
+  q.offeredSlots = clean.map((x) => new Date(x).toISOString());
+  log(state, q.garageId, "slots_offered", `${staffName} offered ${q.customerName} ${q.offeredSlots.map((x) => formatLondon(x, { withDay: true })).join(" or ")}`, q.id);
+}
+
+/** The text that offers those times. */
+export function offerText(q: Quote, slots: string[]): string {
+  const first = q.customerName.split(" ")[0];
+  const when = slots.map((x) => formatLondon(x, { withDay: true }));
+  const list = when.length > 1 ? `${when.slice(0, -1).join(", ")} or ${when.at(-1)}` : when[0];
+  return `Hi ${first}, we can book your ${q.customerJobDescription || q.job} in for ${list}. Reply with ${when.length > 1 ? "the one that suits" : "YES to confirm"} and we'll book you in.`;
+}
+
+export const confirmationText = (q: Quote, slot: string) =>
+  `Hi ${q.customerName.split(" ")[0]}, you're booked in for your ${q.customerJobDescription || q.job} on ${formatLondon(slot, { withDay: true })}. See you then. Reply here if you need to change it.`;

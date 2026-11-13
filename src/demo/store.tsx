@@ -15,6 +15,7 @@ import { SyncQueue, type SyncStatus } from "./sync";
 import { GATE_REASON_TEXT } from "@/domain/gate";
 import { deliveryLabel, prepareManualSend, type ManualTarget } from "@/domain/sms";
 import { approveAndSendText as approveOnServer, sendText as sendOnServer } from "@/server/sms";
+import { confirmationText } from "@/domain/jobs";
 import { addQuote, type QuoteInput } from "@/domain/intake";
 import { applyFollowUpSettings, type ScheduleChange, type SettingsInput } from "@/domain/settings";
 import type { AppState, ProviderMode, Quote } from "@/domain/types";
@@ -82,6 +83,8 @@ type DemoCtx = {
   approveAndSend: (messageId: string) => Promise<TextOutcome>;
   /** "Send follow-up": a staff-written text for a quote or invoice, sent from the garage's number. */
   sendText: (target: ManualTarget, body: string, requestKey: string) => Promise<TextOutcome>;
+  /** Text the customer the booking confirmation (work, date, time). Resolves with what happened; never throws. */
+  textBookingConfirmation: (q: Quote, startAt: string) => Promise<string>;
   simulateReply: (from: string, body: string) => InboundResult;
   advanceClock: (ms: number) => Promise<void>;
   addQuote: (input: QuoteInput) => Quote;
@@ -380,7 +383,15 @@ export function DemoProvider({ children, hosted }: { children: ReactNode; hosted
     );
   }
   if (!state) return <LoadingSkeleton />;
-  const value: DemoCtx = { ...actions, hosted: !!hosted, role: hosted?.role ?? "owner", sync, state, lastRun, epoch, notice, garageId: state.garages[0].id, staff };
+  const textBookingConfirmation = async (q: Quote, startAt: string) => {
+    try {
+      const r = await actions.sendText({ quoteId: q.id, reply: true }, confirmationText(q, startAt), `confirm-${q.id}-${startAt}`);
+      return r.status === "Failed" ? `The confirmation text failed (${r.detail ?? "not sent"}): tell the customer yourself.` : `Confirmation text ${r.status.toLowerCase()}.`;
+    } catch (e) {
+      return `The confirmation text wasn't sent (${(e as Error).message}): tell the customer yourself.`;
+    }
+  };
+  const value: DemoCtx = { ...actions, textBookingConfirmation, hosted: !!hosted, role: hosted?.role ?? "owner", sync, state, lastRun, epoch, notice, garageId: state.garages[0].id, staff };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }
 

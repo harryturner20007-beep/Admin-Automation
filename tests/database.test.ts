@@ -171,3 +171,18 @@ describe("SMS tables", () => {
     await expect(as("authenticated", A_USER, "select * from public.claim_sms_send($1, 'x', 'm', '+447700900101', '+447700900999', 1, 10)", [garageA])).rejects.toThrow(/permission denied/);
   });
 });
+
+describe("platform admin access", () => {
+  const ADMIN = "33333333-3333-3333-3333-333333333333";
+  it("a platform admin can save into any garage; an ordinary outsider still can't", async () => {
+    await db.exec(`insert into auth.users (id, email) values ('${ADMIN}', 'admin@example.com'); insert into public.platform_admins (user_id) values ('${ADMIN}');`);
+    const { doc, version } = await docOf(garageB);
+    const [{ v }] = await save(ADMIN, garageB, version, doc);
+    expect(v).toBe(version + 1);
+    await expect(save(A_USER, garageB, v, doc)).rejects.toThrow(/forbidden/);
+    const log = await as<{ user_id: string }>("service_role", null, "select user_id from public.audit_log where garage_id = $1 order by id desc limit 1", [garageB]);
+    expect(log[0].user_id).toBe(ADMIN); // recorded against the admin
+    // Being an admin grants no direct table access from the browser.
+    expect(await as("authenticated", ADMIN, "select * from public.workspaces")).toEqual([]);
+  });
+});
